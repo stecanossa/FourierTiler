@@ -24,7 +24,7 @@ The second option is still very user friendly and easy to use for any user, but 
 Running the Windows version: Double click on the ".exe" file. In case guidance is needed, users can follow the instructions provided in the User Manual (herewith available for download).
 
 Running the Python version: 
-(N.B. The python modules sys, os, random, io, datetime, numpy, PIL, matplotlib, and scipy should be installed and working in the environment used for running Fourier Tiler.)
+(N.B. The python modules sys, os, random, datetime, numpy, PIL, and math should be installed and working in the environment used for running Fourier Tiler.)
 
 1- Make sure you have "FourierTiler.py" and "Input.txt" in the same folder.
 2- Update "Input.txt" file with the path(s) and name(s) of the input image(s) for the tiling, at the line starting with "tile = ".
@@ -33,10 +33,9 @@ Running the Python version:
 5- Execute "python fouriertiler.py" (the input.txt is automatically loaded if not specified after the script).
 
 -------------------------------------------------
-   ACKNOWLEDGEMENTS and COPYRIGHT INFORMATION
+   Acknowledgements and Permissions
 -------------------------------------------------
 
 Fourier Tiler has been developed by Stefano Canossa thanks also to the kind support by EU4MOFs COST action (CA22147) via an awarded Virtual Mobility (VM) grant.
-The use, distribution, and modification of the provided files and codes are allowed within the boundaries of a CC BY-NC-SA licence, which prohibits unauthorized commercial uses of the program and its derivatives or outputs, and require acknowledgements to its author and contributing parties when make public use of the program or its output files.
-
+The use, distribution, and modification of the provided files for non-commercial purposes are free, by acknowledging the program's author and supporting parties.
 For more information, please read the "licence information" file. 
