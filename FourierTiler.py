@@ -684,7 +684,7 @@ def get_lut(name):
     return _LUTS[_LUT_IDX.get(name, _LUT_IDX["inferno"])]
 def apply_lut(magnitude_01, cmap_name):
     lut = get_lut(cmap_name)
-    return lut[(np.clip(magnitude_01, 0, 1) * 255).astype(np.uint8)]
+    return Image.fromarray(lut[(np.clip(magnitude_01, 0, 1) * 255).astype(np.uint8)])
 
 
 # ---------------------------------------------------------------------------
