@@ -1,0 +1,97 @@
+## ============================================================  ## 
+##  Fourier Tiler — Input file                                   ##  
+##  Usage: python FourierTiler.py Input.txt    					 ##			
+##               												 ##
+##  It works also without specifying the Input.txt file,         ##
+##  if it is present in the same folder.                         ##  
+##  Lines beginning with # are comments.                         ##  
+##  Key names are case-insensitive.                              ##  
+## ============================================================  ## 
+
+
+# ── Grid ─────────────────────────────────────────────────────
+# Side length of the square tiling in number of tiles.
+# A value of 42 produces a 42×42 mosaic (1764 tiles total).
+n = 42
+
+# Number of Monte Carlo swap cycles.
+# Use 0 for a purely random arrangement.
+mc_cycles = 5000
+
+# Shape used to crop the tiling before the FFT is computed.
+# Options: none | circle | faded | ellipse | square | pentagonal
+# "faded" (default) applies a Gaussian-tapered circular window
+# that reduces edge artefacts in the diffraction pattern.
+crop_shape = faded
+
+# Fraction of the half-width used as the crop radius (0 < value ≤ 1).
+crop_radius_factor = 1.0
+
+
+# ── Output ───────────────────────────────────────────────────
+# Folder where all output files are written (created if absent).
+output_folder = ./output
+
+
+# ── FFT / visualisation ──────────────────────────────────────
+# Fraction of the FFT to display / export (centred zoom).
+# 1.0 = full pattern; 0.3 = central 30 %.
+fft_zoom_factor = 0.3
+
+# Standard deviation of the Gaussian smoothing applied to the
+# intensity pattern. Use 0 for no smoothing.
+gaussian_sigma = 1.0
+
+# Matplotlib colormap name for the intensity pattern.
+# Examples: afmhot, inferno, viridis, magma, hot, gray, jet ...
+colormap = afmhot
+
+# Intensity-range clipping (percentages, 0 – 100).
+intensity_low  = 0
+intensity_high = 100
+
+# Side length (pixels) of the exported PNG files.
+# Allowed values: 1000 | 2000 | 3000 | 4000 | 5000
+export_size = 3000
+
+# ── Optional outputs ──────────────────────────────────────────
+# Save the MC global-energy plot (PNG).
+# Requires nonzero interaction energies and at least 2 MC cycles.
+save_mc_energy_plot = True
+
+# Save the squared difference form factor |FT(tile1) − FT(tile2)|²  (PNG).
+# Uses the first two tiles listed below. Requires at least 2 tiles.
+save_diff_ff = True
+
+# Save the occupancy-weighted average structure (PNG).
+save_avg_structure = False
+
+
+# ── Tiles ────────────────────────────────────────────────────
+# Format:  tile = <occupancy>, <path/to/image>
+# Occupancies are normalised automatically if they do not sum to 1.
+# Any non-square image is centre-cropped to a square.
+# Images of different sizes are resized to the smallest one.
+# Add or remove lines freely.
+tile = 0.6, /mnt/c/Users/JBFourier/Desktop/tile1.png
+tile = 0.4, /mnt/c/Users/JBFourier/Desktop/tile2.jpg
+
+# ── Pair interactions ────────────────────────────────────────
+# Format:  interaction = <from_tile>, <to_tile>, <dx>, <dy>, <energy>
+#
+#  from_tile / to_tile : 1-based tile index (order as listed above).
+#  dx, dy              : displacement vector components (integers).
+#  energy              : real number; negative = favoured, positive = disfavoured.
+#
+# No symmetry is applied automatically — add each direction explicitly.
+# Comment out or delete these lines if no interactions are needed.
+#
+# Example — tile 1 dislikes tile 2 along x and y, likes it on diagonals:
+# interaction = 1, 1,  1,  0,  10.0
+# interaction = 1, 2,  0,  1,  10.0
+# interaction = 1, 2, -1,  0,  10.0
+# interaction = 1, 2,  0, -1,  10.0
+# interaction = 1, 2,  1,  1,  -2.0
+# interaction = 1, 2,  1, -1,  -2.0
+# interaction = 1, 2, -1,  1,  -2.0
+# interaction = 1, 2, -1, -1,  -2.0
