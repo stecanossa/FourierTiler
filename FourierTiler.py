@@ -1,7 +1,7 @@
 """
 Fourier Tiler — Command-line version
 Usage:  python FourierTiler.py Input.txt
-   or:  python FourierTiler.py ( it looks for Input.txt in the working directory)
+        python FourierTiler.py               (looks for Input.txt in the working directory)
 
 All parameters are read from the input file. Run with --template to write a
 commented template input file and exit.
@@ -10,17 +10,171 @@ commented template input file and exit.
 import sys
 import os
 import random
-import io
 import datetime
+import math
 
 import numpy as np
 import numpy.fft as fft
-from PIL import Image, ImageOps, PngImagePlugin
-import matplotlib
-matplotlib.use("Agg")          
-import matplotlib.pyplot as plt
-from matplotlib.path import Path
-from scipy.ndimage import gaussian_filter
+from PIL import Image, ImageDraw, ImageOps, PngImagePlugin
+
+
+# ---------------------------------------------------------------------------
+# Colormap LUT engine  (replaces matplotlib.colormaps + plt.get_cmap)
+# ---------------------------------------------------------------------------
+
+def _c(v): return max(0.0, min(1.0, float(v)))
+def _lerp_ctrl(ctrl, t):
+    if t <= ctrl[0][0]:  return ctrl[0][1], ctrl[0][2], ctrl[0][3]
+    if t >= ctrl[-1][0]: return ctrl[-1][1], ctrl[-1][2], ctrl[-1][3]
+    for j in range(len(ctrl)-1):
+        t0,r0,g0,b0 = ctrl[j]; t1,r1,g1,b1 = ctrl[j+1]
+        if t0 <= t <= t1:
+            u = (t-t0)/(t1-t0) if t1>t0 else 0.0
+            return r0+u*(r1-r0), g0+u*(g1-g0), b0+u*(b1-b0)
+    return ctrl[-1][1], ctrl[-1][2], ctrl[-1][3]
+def _make_lut(fn, n=256):
+    out = np.empty((n,3), dtype=np.uint8)
+    for i in range(n):
+        t=i/255.0; r,g,b=fn(t)
+        out[i]=(int(_c(r)*255), int(_c(g)*255), int(_c(b)*255))
+    return out
+
+_VI=[(0.0,0.267,0.005,0.329),(0.1,0.283,0.141,0.458),(0.2,0.254,0.265,0.530),(0.3,0.207,0.372,0.553),(0.4,0.164,0.471,0.558),(0.5,0.128,0.566,0.551),(0.6,0.135,0.659,0.518),(0.7,0.267,0.749,0.441),(0.8,0.478,0.821,0.318),(0.9,0.741,0.873,0.150),(1.0,0.993,0.906,0.144)]
+_IN=[(0.0,0.001,0.000,0.014),(0.1,0.116,0.052,0.240),(0.2,0.307,0.062,0.425),(0.3,0.494,0.090,0.418),(0.4,0.652,0.167,0.342),(0.5,0.798,0.280,0.225),(0.6,0.910,0.418,0.104),(0.7,0.974,0.572,0.024),(0.8,0.992,0.733,0.137),(0.9,0.978,0.901,0.349),(1.0,0.988,0.998,0.645)]
+_MA=[(0.0,0.001,0.000,0.014),(0.1,0.107,0.049,0.202),(0.2,0.269,0.067,0.401),(0.3,0.432,0.099,0.468),(0.4,0.580,0.141,0.480),(0.5,0.728,0.195,0.473),(0.6,0.864,0.285,0.420),(0.7,0.956,0.448,0.384),(0.8,0.992,0.634,0.490),(0.9,0.997,0.825,0.682),(1.0,0.988,0.992,0.880)]
+_PL=[(0.0,0.051,0.030,0.529),(0.1,0.286,0.017,0.603),(0.2,0.458,0.006,0.640),(0.3,0.612,0.091,0.624),(0.4,0.736,0.209,0.563),(0.5,0.845,0.323,0.470),(0.6,0.932,0.441,0.365),(0.7,0.976,0.576,0.248),(0.8,0.987,0.727,0.133),(0.9,0.969,0.882,0.104),(1.0,0.940,1.000,0.150)]
+_TU=[(0.0,0.190,0.071,0.230),(0.1,0.274,0.365,0.886),(0.2,0.165,0.640,0.992),(0.3,0.071,0.845,0.768),(0.4,0.176,0.950,0.431),(0.5,0.490,0.991,0.137),(0.6,0.784,0.929,0.075),(0.7,0.970,0.750,0.090),(0.8,0.991,0.490,0.063),(0.9,0.916,0.224,0.047),(1.0,0.735,0.041,0.039)]
+_SP=[(0.0,0.620,0.004,0.259),(0.1,0.835,0.243,0.310),(0.2,0.957,0.427,0.263),(0.3,0.992,0.682,0.380),(0.4,0.996,0.878,0.545),(0.5,1.000,1.000,0.749),(0.6,0.902,0.961,0.596),(0.7,0.671,0.867,0.643),(0.8,0.400,0.761,0.647),(0.9,0.196,0.533,0.741),(1.0,0.369,0.310,0.635)]
+_RB=[(0.0,0.647,0.000,0.149),(0.17,0.843,0.188,0.153),(0.33,0.957,0.647,0.510),(0.50,0.969,0.969,0.969),(0.67,0.573,0.773,0.871),(0.83,0.216,0.525,0.753),(1.0,0.020,0.188,0.380)]
+_PY=[(0.0,0.557,0.004,0.322),(0.2,0.867,0.400,0.690),(0.4,0.980,0.749,0.906),(0.5,0.969,0.969,0.969),(0.6,0.851,0.941,0.827),(0.8,0.498,0.737,0.435),(1.0,0.153,0.392,0.098)]
+_PR=[(0.0,0.251,0.000,0.294),(0.2,0.541,0.298,0.647),(0.4,0.847,0.761,0.871),(0.5,0.969,0.969,0.969),(0.6,0.718,0.886,0.698),(0.8,0.220,0.671,0.380),(1.0,0.000,0.267,0.106)]
+_BB=[(0.0,0.329,0.188,0.020),(0.2,0.698,0.510,0.231),(0.4,0.902,0.812,0.616),(0.5,0.961,0.961,0.961),(0.6,0.718,0.886,0.878),(0.8,0.200,0.600,0.561),(1.0,0.004,0.235,0.188)]
+_PO=[(0.0,0.498,0.231,0.031),(0.2,0.847,0.600,0.173),(0.4,0.992,0.859,0.635),(0.5,0.969,0.969,0.969),(0.6,0.847,0.741,0.906),(0.8,0.596,0.439,0.792),(1.0,0.176,0.000,0.294)]
+_RG=[(0.0,0.404,0.000,0.122),(0.2,0.816,0.239,0.306),(0.4,0.980,0.757,0.651),(0.5,1.000,1.000,1.000),(0.6,0.878,0.878,0.878),(0.8,0.529,0.529,0.529),(1.0,0.251,0.251,0.251)]
+_RYB=[(0.0,0.647,0.000,0.149),(0.2,0.910,0.306,0.145),(0.4,0.988,0.816,0.490),(0.5,1.000,1.000,0.749),(0.6,0.671,0.851,0.914),(0.8,0.271,0.604,0.773),(1.0,0.192,0.212,0.584)]
+_RYG=[(0.0,0.647,0.000,0.149),(0.2,0.910,0.306,0.145),(0.4,0.988,0.816,0.490),(0.5,1.000,1.000,0.749),(0.6,0.741,0.902,0.490),(0.8,0.290,0.745,0.439),(1.0,0.000,0.408,0.216)]
+_CW=[(0.0,0.086,0.404,0.859),(0.25,0.573,0.773,0.871),(0.5,0.969,0.969,0.969),(0.75,0.957,0.647,0.510),(1.0,0.706,0.016,0.016)]
+_TW=[(0.0,0.886,0.816,0.859),(0.25,0.376,0.298,0.647),(0.5,0.141,0.141,0.141),(0.75,0.471,0.271,0.133),(1.0,0.886,0.816,0.859)]
+_OC=[(0.0,0.0,0.0,0.4),(0.5,0.0,0.5,0.5),(1.0,0.0,0.8,0.0)]
+_GE=[(0.0,0.0,0.2,0.0),(0.2,0.1,0.4,0.1),(0.4,0.4,0.6,0.2),(0.6,0.7,0.7,0.5),(0.8,0.9,0.85,0.7),(1.0,1.0,1.0,1.0)]
+_TE=[(0.0,0.2,0.2,0.8),(0.15,0.0,0.5,1.0),(0.25,0.0,0.8,0.4),(0.5,0.6,0.8,0.3),(0.75,0.8,0.7,0.5),(1.0,1.0,1.0,1.0)]
+_CM=[(0.0,0.0,0.0,0.0),(0.2,0.2,0.0,0.6),(0.4,0.0,0.4,0.8),(0.6,0.6,0.8,0.0),(0.8,1.0,0.6,0.0),(1.0,1.0,1.0,1.0)]
+_GS=[(0.0,0.0,0.0,0.0),(0.09,1.0,0.0,0.0),(0.10,0.0,0.0,0.0),(0.5,0.5,0.5,0.5),(1.0,1.0,1.0,1.0)]
+_NI=[(0.0,0.0,0.0,0.0),(0.1,0.5,0.0,0.5),(0.2,0.0,0.0,1.0),(0.35,0.0,0.8,1.0),(0.5,0.0,0.7,0.0),(0.65,0.8,0.8,0.0),(0.75,1.0,0.5,0.0),(0.9,1.0,0.0,0.0),(0.95,1.0,1.0,1.0),(1.0,1.0,1.0,1.0)]
+_NC=[(0.0,0.0,0.0,0.5),(0.1,0.0,0.5,1.0),(0.2,0.0,1.0,1.0),(0.3,0.5,1.0,0.0),(0.4,1.0,1.0,0.0),(0.5,1.0,0.5,0.0),(0.6,1.0,0.0,0.0),(0.7,0.8,0.0,0.5),(0.8,0.5,0.0,0.8),(0.9,0.8,0.5,0.8),(1.0,1.0,1.0,1.0)]
+_ORD=[(0.0,1.0,0.97,0.94),(0.5,0.99,0.55,0.24),(1.0,0.55,0.00,0.00)]
+_PUD=[(0.0,0.97,0.96,0.98),(0.5,0.78,0.49,0.72),(1.0,0.45,0.00,0.33)]
+_RPU=[(0.0,1.0,0.97,0.97),(0.5,0.97,0.41,0.60),(1.0,0.49,0.00,0.27)]
+_BPU=[(0.0,0.97,0.94,0.98),(0.5,0.55,0.59,0.78),(1.0,0.30,0.00,0.29)]
+_GNB=[(0.0,0.97,0.99,0.94),(0.5,0.40,0.76,0.64),(1.0,0.03,0.25,0.50)]
+_PUB=[(0.0,1.0,0.97,0.98),(0.5,0.39,0.67,0.81),(1.0,0.02,0.22,0.45)]
+_YGB=[(0.0,1.0,1.0,0.85),(0.33,0.36,0.82,0.64),(0.67,0.04,0.52,0.70),(1.0,0.03,0.11,0.35)]
+_PBG=[(0.0,1.0,0.97,0.98),(0.33,0.39,0.67,0.81),(0.67,0.10,0.70,0.54),(1.0,0.00,0.27,0.11)]
+_BGN=[(0.0,0.97,0.99,0.98),(0.5,0.40,0.83,0.74),(1.0,0.00,0.27,0.11)]
+_YGN=[(0.0,1.0,1.0,0.90),(0.5,0.42,0.76,0.39),(1.0,0.00,0.27,0.11)]
+
+def _hsv(h,s=1.0,v=1.0):
+    h=h%360; i=int(h/60)%6; f=h/60-int(h/60)
+    p,q,t2=v*(1-s),v*(1-f*s),v*(1-(1-f)*s)
+    return [(v,t2,p),(q,v,p),(p,v,t2),(p,q,v),(t2,p,v),(v,p,q)][i]
+def _cubehelix(t,start=0.5,rot=-1.5,hue=1.0,gamma=1.0):
+    t=t**gamma; a=2*math.pi*(start/3+rot*t); amp=hue*t*(1-t)/2
+    return (_c(t+amp*(-0.14861*math.cos(a)+1.78277*math.sin(a))),
+            _c(t+amp*(-0.29227*math.cos(a)-0.90649*math.sin(a))),
+            _c(t+amp*(1.97294*math.cos(a))))
+def _build_lut(name):
+    L=lambda ctrl:(lambda t:_lerp_ctrl(ctrl,t))
+    fns={
+        "viridis":L(_VI),"inferno":L(_IN),"magma":L(_MA),"plasma":L(_PL),"turbo":L(_TU),
+        "OrRd":L(_ORD),"PuRd":L(_PUD),"RdPu":L(_RPU),"BuPu":L(_BPU),"GnBu":L(_GNB),
+        "PuBu":L(_PUB),"YlGnBu":L(_YGB),"PuBuGn":L(_PBG),"BuGn":L(_BGN),"YlGn":L(_YGN),
+        "gist_gray":lambda t:(t,t,t),"gist_yarg":lambda t:(1-t,1-t,1-t),
+        "hot":lambda t:(_c(t/0.3333),_c((t-0.3333)/0.3333),_c((t-0.6667)/0.3333)),
+        "afmhot":lambda t:(_c(t/0.5),_c((t-0.25)/0.5),_c((t-0.5)/0.5)),
+        "gist_heat":lambda t:(_c(t/0.4),_c((t-0.4)/0.35),_c((t-0.75)/0.25)),
+        "bone":lambda t:(_c(t*0.875+(t-0.75)*0.125 if t>0.75 else t*0.875),
+                         _c(t*0.875+(t-0.75)*0.125 if t>0.75 else t*0.875),
+                         _c(t*0.875+t*0.125/0.75 if t<0.75 else 0.875+0.125*(t-0.75)/0.25)),
+        "pink":lambda t:(_c(math.sqrt(max(0,t*2/3+(t/3 if t>0.5 else 0)))),
+                         _c(math.sqrt(max(0,t*2/3+(t/3 if t<0.5 else 0)))),
+                         _c(math.sqrt(t) if t>0.5 else 0)),
+        "copper":lambda t:(_c(t*1.25),_c(t*0.7812),_c(t*0.4975)),
+        "Spectral":L(_SP),"RdBu":L(_RB),"PiYG":L(_PY),"PRGn":L(_PR),"BrBG":L(_BB),
+        "PuOr":L(_PO),"RdGy":L(_RG),"RdYlBu":L(_RYB),"RdYlGn":L(_RYG),"coolwarm":L(_CW),
+        "seismic":lambda t:((_c(t*2),_c(t*2),1.0) if t<0.5 else (1.0,_c(2-t*2),_c(2-t*2))),
+        "hsv":lambda t:_hsv(t*360),"twilight":L(_TW),
+        "twilight_shifted":lambda t:_lerp_ctrl(_TW,(t+0.5)%1.0),
+        "cool":lambda t:(t,1-t,1.0),"spring":lambda t:(1.0,t,1-t),
+        "summer":lambda t:(t,_c(0.5+0.5*t),0.4),"autumn":lambda t:(1.0,t,0.0),
+        "winter":lambda t:(0.0,t,_c(1-0.5*t)),
+        "rainbow":lambda t:_hsv((1-t)*270),"gist_rainbow":lambda t:_hsv((1-t)*300),
+        "jet":lambda t:(_c(1.5-abs(4*t-3)),_c(1.5-abs(4*t-2)),_c(1.5-abs(4*t-1))),
+        "brg":lambda t:(_c(2-4*t) if t<0.5 else _c(4*t-2),0.0,
+                        _c(4*t) if t<0.25 else (_c(2-4*t) if t<0.5 else 0.0)),
+        "prism":lambda t:_hsv((t*10%1)*360),
+        "ocean":L(_OC),"gist_earth":L(_GE),"terrain":L(_TE),"CMRmap":L(_CM),
+        "gist_stern":L(_GS),"gnuplot":lambda t:(_c(t),0.0,_c(t*t)),
+        "gnuplot2":lambda t:(_c(2*t),_c(2*t-1),_c(4*t-3)),
+        "cubehelix":lambda t:_cubehelix(t),"nipy_spectral":L(_NI),"gist_ncar":L(_NC),
+    }
+    return _make_lut(fns.get(name, fns["inferno"]))
+
+_ALL_CMAPS = [
+    "inferno","viridis","magma","OrRd","PuRd","RdPu","BuPu","GnBu","PuBu","YlGnBu",
+    "PuBuGn","BuGn","YlGn","gist_yarg","gist_gray","bone","pink","hot","afmhot",
+    "gist_heat","PiYG","PRGn","BrBG","PuOr","RdGy","RdBu","RdYlBu","RdYlGn",
+    "Spectral","coolwarm","seismic","twilight","twilight_shifted","hsv","prism",
+    "ocean","gist_earth","terrain","gist_stern","gnuplot","gnuplot2","CMRmap",
+    "cubehelix","brg","gist_rainbow","rainbow","jet","turbo","nipy_spectral","gist_ncar",
+]
+_LUT_CACHE = {}
+def get_lut(name):
+    if name not in _LUT_CACHE:
+        _LUT_CACHE[name] = _build_lut(name)
+    return _LUT_CACHE[name]
+
+def apply_lut(magnitude_01, cmap_name):
+    """Apply colormap LUT to a [0,1] float array; return (H,W,3) uint8 array."""
+    lut = get_lut(cmap_name)
+    return lut[(np.clip(magnitude_01, 0, 1) * 255).astype(np.uint8)]
+
+# Pre-warm all LUTs at startup
+for _n in _ALL_CMAPS:
+    get_lut(_n)
+
+
+# ---------------------------------------------------------------------------
+# Gaussian filter  (replaces scipy.ndimage.gaussian_filter)
+# ---------------------------------------------------------------------------
+
+def gaussian_filter_np(arr, sigma):
+    if sigma <= 0:
+        return arr
+    radius  = max(1, int(math.ceil(3 * sigma)))
+    x       = np.arange(-radius, radius + 1, dtype=float)
+    kernel  = np.exp(-x**2 / (2 * sigma**2))
+    kernel /= kernel.sum()
+    arr = np.apply_along_axis(lambda r: np.convolve(r, kernel, mode="same"), axis=1, arr=arr)
+    arr = np.apply_along_axis(lambda r: np.convolve(r, kernel, mode="same"), axis=0, arr=arr)
+    return arr
+
+
+# ---------------------------------------------------------------------------
+# Point-in-polygon  (replaces matplotlib.path.Path.contains_points)
+# ---------------------------------------------------------------------------
+
+def _points_in_polygon(coords, polygon):
+    result = np.zeros(len(coords), dtype=bool)
+    cx, cy = coords[:, 0], coords[:, 1]
+    n = len(polygon); j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]; xj, yj = polygon[j]
+        cond1 = (cy > yi) != (cy > yj)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_int = (xj - xi) * (cy - yi) / (yj - yi) + xi
+        result ^= cond1 & (cx < x_int)
+        j = i
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +279,7 @@ def parse_input_file(path: str) -> dict:
                     params["crop_shape"] = val
 
             elif key == "colormap":
-                if rest not in matplotlib.colormaps:
+                if rest not in _ALL_CMAPS:
                     _warn(f"Line {lineno}: colormap '{rest}' not recognised. "
                           "Using default 'afmhot'.")
                 else:
@@ -243,8 +397,8 @@ def apply_mask_crop(image: Image.Image, crop_radius_factor: float, shape: str) -
         angles  = np.linspace(0, 2 * np.pi, 5, endpoint=False)
         polygon = [(cx + radius * np.cos(a), cy + radius * np.sin(a)) for a in angles]
         xx, yy  = np.meshgrid(np.arange(w), np.arange(h))
-        coords  = np.column_stack((xx.ravel(), yy.ravel()))
-        mask    = Path(polygon).contains_points(coords).reshape((h, w))
+        coords  = np.column_stack((xx.ravel(), yy.ravel())).astype(float)
+        mask    = _points_in_polygon(coords, polygon).reshape((h, w))
 
     else:
         mask = np.ones_like(arr, dtype=bool)
@@ -256,7 +410,7 @@ def apply_fft_processing(magnitude: np.ndarray, params: dict) -> np.ndarray:
     """Apply smoothing, zoom, percentile clip, and intensity-range rescaling."""
     sigma = float(params["gaussian_sigma"])
     if sigma > 0:
-        magnitude = gaussian_filter(magnitude, sigma=sigma)
+        magnitude = gaussian_filter_np(magnitude, sigma)
 
     zoom   = max(0.01, min(float(params["fft_zoom_factor"]), 1.0))
     h, w   = magnitude.shape
@@ -451,37 +605,40 @@ def run(params: dict):
     mc_energies  = []
     out_dir      = params["output_folder"]
     os.makedirs(out_dir, exist_ok=True)
-    log_path     = os.path.join(out_dir, "MC_global_energy_log.txt")
 
     print(f"Running MC simulation ({cycles} cycles)...")
-    with open(log_path, "w") as log_file:
-        log_file.write("cycle\told_energy\tnew_energy\tcurrent_energy\n")
+    if cycles >= 2:
+        log_path = os.path.join(out_dir, "MC_global_energy_log.txt")
+        with open(log_path, "w") as log_file:
+            log_file.write("cycle\told_energy\tnew_energy\tcurrent_energy\n")
 
-        for cycle in range(cycles):
-            i1, j1 = random.randint(0, n - 1), random.randint(0, n - 1)
-            i2, j2 = random.randint(0, n - 1), random.randint(0, n - 1)
+            for cycle in range(cycles):
+                i1, j1 = random.randint(0, n - 1), random.randint(0, n - 1)
+                i2, j2 = random.randint(0, n - 1), random.randint(0, n - 1)
 
-            old_energy = calculate_energy(grid, name_to_idx, interactions)
-            grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]
-            new_energy = calculate_energy(grid, name_to_idx, interactions)
+                old_energy = calculate_energy(grid, name_to_idx, interactions)
+                grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]
+                new_energy = calculate_energy(grid, name_to_idx, interactions)
 
-            if new_energy < old_energy:
-                current_energy = new_energy          # keep the swap
-            else:
-                grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]   # revert
-                current_energy = old_energy
+                if new_energy < old_energy:
+                    current_energy = new_energy
+                else:
+                    grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]
+                    current_energy = old_energy
 
-            log_file.write(
-                f"{cycle + 1}\t\t{old_energy}\t\t{new_energy}\t\t{current_energy}\n"
-            )
-            mc_energies.append(current_energy)
+                log_file.write(
+                    f"{cycle + 1}\t\t{old_energy}\t\t{new_energy}\t\t{current_energy}\n"
+                )
+                mc_energies.append(current_energy)
 
-            if cycles >= 100 and cycle % max(1, cycles // 100) == 0:
-                pct = int((cycle / cycles) * 100)
-                print(f"  {pct}%", end="\r", flush=True)
+                if cycles >= 100 and cycle % max(1, cycles // 100) == 0:
+                    pct = int((cycle / cycles) * 100)
+                    print(f"  {pct}%", end="\r", flush=True)
 
-    if cycles >= 100:
-        print("  100%")
+        if cycles >= 100:
+            print("  100%")
+    else:
+        print("  MC simulation skipped (cycles < 2).")
 
     # ── Compose tiling image ────────────────────────────────────────────────
     print("Composing tiling image...")
@@ -535,9 +692,7 @@ def run(params: dict):
 
     # FFT intensity
     cmap_name = params["colormap"]
-    cmap      = plt.get_cmap(cmap_name)
-    rgba      = cmap(magnitude)
-    rgb       = (rgba[:, :, :3] * 255).astype(np.uint8)
+    rgb       = apply_lut(magnitude, cmap_name)
     fft_img   = Image.fromarray(rgb, mode="RGB").resize(
         (export_size, export_size), Image.LANCZOS
     )
@@ -553,8 +708,7 @@ def run(params: dict):
         else:
             print("Computing difference form factor...")
             diff_mag  = compute_diff_ff(paths, min_size, params)
-            diff_rgba = cmap(diff_mag)
-            diff_rgb  = (diff_rgba[:, :, :3] * 255).astype(np.uint8)
+            diff_rgb  = apply_lut(diff_mag, cmap_name)
             diff_img  = Image.fromarray(diff_rgb, mode="RGB").resize(
                 (export_size, export_size), Image.LANCZOS
             )
@@ -580,22 +734,38 @@ def run(params: dict):
             _warn("save_mc_energy_plot = True but no nonzero interactions or fewer than "
                   "2 MC cycles ran — energy plot skipped.")
         else:
-            fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
-            ax.plot(range(1, len(mc_energies) + 1), mc_energies, color="#2F24D8", linewidth=2)
-            ax.set_xlabel("\nMC cycle number\n")
-            ax.set_ylabel("\nGlobal energy\n")
-            ax.set_title("Global energy plot", fontsize=14, pad=12)
-            ax.text(
-                0.5, -0.18,
-                "\nTo make full use of interactions, ensure cycles are sufficient\n"
-                "for the energy to reach a plateau (equilibration).",
-                fontsize=8, ha="center", va="top", transform=ax.transAxes,
-            )
-            ax.grid(True, alpha=0.3)
+            W, H = 600, 400
+            pad_l, pad_r, pad_t, pad_b = 72, 20, 44, 70
+            pw = W - pad_l - pad_r
+            ph = H - pad_t - pad_b
+            mn, mx = min(mc_energies), max(mc_energies)
+            if mx == mn: mx = mn + 1.0
+            plot_img  = Image.new("RGB", (W, H), "white")
+            draw      = ImageDraw.Draw(plot_img)
+            # Grid + Y ticks
+            for i in range(5):
+                y   = pad_t + ph - int(i * ph / 4)
+                val = mn + (mx - mn) * i / 4
+                draw.line([(pad_l, y), (pad_l + pw, y)], fill="#cccccc")
+                draw.text((pad_l - 4, y), f"{val:.4g}", fill="black", anchor="rm")
+            # Axes box
+            draw.rectangle([pad_l, pad_t, pad_l + pw, pad_t + ph], outline="black")
+            # Labels
+            draw.text((W // 2, pad_t // 2), "Global energy plot", fill="black", anchor="mm")
+            draw.text((W // 2, H - 8), "MC cycle number", fill="black", anchor="mm")
+            draw.text((10, pad_t + ph // 2), "Global energy", fill="black", anchor="mm")
+            # Data line
+            if len(mc_energies) >= 2:
+                pts = []
+                for i, e in enumerate(mc_energies):
+                    x = pad_l + int(i / (len(mc_energies) - 1) * pw)
+                    y = pad_t + ph - int((e - mn) / (mx - mn) * ph)
+                    pts.append((x, y))
+                for i in range(len(pts) - 1):
+                    draw.line([pts[i], pts[i + 1]], fill="#2F24D8", width=2)
             idx_en    = next_available_index(out_dir, "MC_energy")
             plot_path = os.path.join(out_dir, f"MC_energy_{idx_en:02d}.png")
-            fig.savefig(plot_path, bbox_inches="tight", dpi=150)
-            plt.close(fig)
+            plot_img.save(plot_path, dpi=(150, 150))
             print(f"  Saved MC energy     →  {plot_path}")
 
     print(f"\nAll done. Output folder: {os.path.abspath(out_dir)}")
