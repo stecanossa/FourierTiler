@@ -21,7 +21,7 @@ Additional functions include the inspection of the squared difference form facto
 ---------------
 
 Fourier Tiler is provided either as (1) Windows executable or (2) python script. 
-The first option gives access to a Graphical User Interface facilitating the use of the program, while preventing more coding-savvy users from modifying it.
+The first option, available within the release, gives access to a Graphical User Interface facilitating the use of the program, while preventing more coding-savvy users from modifying it.
 The second option is still very user friendly and easy to use, but is kept light by not having any user interface (except for the simple command line). This version allows anyone to modify the underlying code.
 
 
@@ -43,4 +43,4 @@ Double click on the ".exe" file. In case guidance is needed, users can follow th
 -------------------------------------------------
 
 Fourier Tiler has been developed by Stefano Canossa thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
-Its development was also made possible by coding assistance by Microsoft copilot and Anthropic Claude. The use, distribution, and modification of the provided files for non-commercial purposes are allowed upon acknowledging the program's author and supporting parties. For more information, please read the "licence information" file. 
+COding assistance by Microsoft Copilot and Anthropic Claude were essential for its development, while design of interface, functions, and behaviour have been independent from AI contribution. The use, distribution, and modification of the provided files for non-commercial purposes are allowed upon acknowledging the program's author and supporting parties. For more information, please read the "licence information" file. 
