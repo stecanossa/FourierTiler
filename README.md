@@ -29,7 +29,7 @@ Double click on the ".exe" file. In case guidance is needed, users can follow th
 
 
 ### Running the Python version
-N.B. The following python modules are required for running the script: **sys, os, random, datetime, math, numpy, PIL**
+N.B. The following python modules are required for running the script: **sys, os, random, datetime, math, numpy, PIL (Pillow)**
 
 1- Make sure you have "FourierTiler.py" and "Input.txt" in the same folder.    
 2- Update "Input.txt" file with the path(s) and name(s) of the input image(s) for the tiling, at the line starting with "tile = ".    
@@ -38,6 +38,9 @@ N.B. The following python modules are required for running the script: **sys, os
 5- Execute "python fouriertiler.py Input.txt" (the input.txt file is automatically loaded if not specified in the command).    
 <br><br>
 
+## Tile images
+
+A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF.
 
 #   Acknowledgements and Permissions
    
