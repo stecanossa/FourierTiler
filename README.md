@@ -3,8 +3,11 @@ Welcome to FourierTiler!
 This program provides an image-based analogy of how diffraction and total scattering works, which considers:
 
 •   Unit cell content as images (tiles), therefore pixel brightness as scatterer density.
+
 •   Substitutional disorder as alternative tiles, representing unit cells with different contents.
+
 •   Scattering patterns as squared Fourier Transform (FT) of the crystal's structure (tiling).
+
 
 In the most basic workflow, the program executes these sequential processes:
 1. Loads images that are used as tiles to assemble a square tiling.
