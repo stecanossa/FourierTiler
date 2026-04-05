@@ -47,4 +47,5 @@ Users are highly encouraged to crate their custom tiles and let their creativity
 #   Acknowledgements and Permissions
    
 Fourier Tiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
-Coding assistance by Microsoft Copilot and Anthropic Claude were essential for its development, while design of interface, functions, and behaviour have been independent from AI contribution. The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Stefano Canossa), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
+Coding assistance by Microsoft Copilot and Anthropic Claude were essential for its development, while design of interface, functions, and behaviour have been independent from AI contribution.   
+The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Stefano Canossa), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
