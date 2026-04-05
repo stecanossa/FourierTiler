@@ -29,7 +29,7 @@ Double click on the ".exe" file. In case guidance is needed, users can follow th
 
 
 ### Running the Python version
-(N.B. Some python modules are required, please read the User manual for further details)
+N.B. The following python modules are required for running the script: **sys, os, random, datetime, math, numpy, PIL**
 
 1- Make sure you have "FourierTiler.py" and "Input.txt" in the same folder.    
 2- Update "Input.txt" file with the path(s) and name(s) of the input image(s) for the tiling, at the line starting with "tile = ".    
