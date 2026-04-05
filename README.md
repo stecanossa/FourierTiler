@@ -40,8 +40,8 @@ N.B. The following python modules are required for running the script: **sys, os
 
 ## Tile images
 
-A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF.   
-Users are highly encouraged to crate their custom tiles and let their creativity run free! 
+A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF.Users are highly encouraged to crate their custom tiles and let their creativity run free!   
+Further useful information can be found in the User Manual provided within the release.
 <br><br>
 
 #   Acknowledgements and Permissions
