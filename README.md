@@ -14,7 +14,6 @@ In the most basic workflow, the program executes these sequential processes:
 3. Produces a squared FT of the tiling image — |FT(image)|² — representing its "diffraction pattern".
 
 Additional functions include the inspection of the squared difference form factor of a pair of tiles, the average structure of the tiling, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as several customization options for the output images.                 
-  
 <br><br>
 
 # Use instructions
@@ -36,14 +35,13 @@ N.B. The following python modules are required for running the script: **sys, os
 2- Update "Input.txt" file with the path(s) and name(s) of the input image(s) for the tiling, at the line starting with "tile = ".    
 3- Modify the default options if you like, and add optional interactions at the end of the file.    
 4- Open a command line and navigate to the folder where you have the program and input file.    
-5- Execute "python fouriertiler.py Input.txt" (the input.txt file is automatically loaded if not specified in the command).    
+5- Execute "python fouriertiler.py Input.txt" (the input.txt file is automatically loaded if not specified in the command).  
 <br><br>
 
 ## Tile images
 
 A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF.   
 Users are highly encouraged to crate their custom tiles and let their creativity run free! 
-  
 <br><br>
 
 #   Acknowledgements and Permissions
