@@ -684,7 +684,7 @@ def get_lut(name):
     return _LUTS[_LUT_IDX.get(name, _LUT_IDX["inferno"])]
 def apply_lut(magnitude_01, cmap_name):
     lut = get_lut(cmap_name)
-    return Image.fromarray(lut[(np.clip(magnitude_01, 0, 1) * 255).astype(np.uint8)])
+    return lut[(np.clip(magnitude_01, 0, 1) * 255).astype(np.uint8)]
 
 
 # ---------------------------------------------------------------------------
@@ -1278,35 +1278,127 @@ def run(params: dict):
             _warn("save_mc_energy_plot = True but no nonzero interactions or fewer than "
                   "2 MC cycles ran — energy plot skipped.")
         else:
-            W, H = 600, 400
-            pad_l, pad_r, pad_t, pad_b = 72, 20, 44, 70
+            # ── Layout ──────────────────────────────────────────────────────
+            W, H     = 820, 540
+            pad_l    = 130   # room for Y tick labels + Y axis label side by side
+            pad_r    = 40
+            pad_t    = 60
+            pad_b    = 100
             pw = W - pad_l - pad_r
             ph = H - pad_t - pad_b
             mn, mx = min(mc_energies), max(mc_energies)
             if mx == mn: mx = mn + 1.0
-            plot_img  = Image.new("RGB", (W, H), "white")
-            draw      = ImageDraw.Draw(plot_img)
-            # Grid + Y ticks
-            for i in range(5):
-                y   = pad_t + ph - int(i * ph / 4)
-                val = mn + (mx - mn) * i / 4
-                draw.line([(pad_l, y), (pad_l + pw, y)], fill="#cccccc")
-                draw.text((pad_l - 4, y), f"{val:.4g}", fill="black", anchor="rm")
+            # Nice round tick spacing on Y axis
+            import math as _math
+            raw_step = (mx - mn) / 7
+            mag      = 10 ** _math.floor(_math.log10(abs(raw_step))) if raw_step else 1
+            step     = round(raw_step / mag) * mag or mag
+            y_first  = _math.ceil(mn / step) * step
+            y_ticks  = []
+            v = y_first
+            while v <= mx + step * 0.01:
+                y_ticks.append(v); v += step
+            # Nice X ticks
+            n_pts    = len(mc_energies)
+            raw_xstep = n_pts / 6
+            xmag     = 10 ** _math.floor(_math.log10(raw_xstep)) if raw_xstep else 1
+            xstep    = round(raw_xstep / xmag) * xmag or xmag
+            x_ticks  = list(range(0, n_pts, max(1, int(xstep))))
+            if n_pts - 1 not in x_ticks:
+                x_ticks.append(n_pts - 1)
+
+            plot_img = Image.new("RGB", (W, H), "white")
+            draw     = ImageDraw.Draw(plot_img)
+
+            # Try to load a decent font — try several paths for cross-platform support
+            from PIL import ImageFont as _IF
+            def _load_font(size):
+                candidates = [
+                    "arial.ttf",
+                    "Arial.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/System/Library/Fonts/Helvetica.ttc",
+                    "C:/Windows/Fonts/arial.ttf",
+                ]
+                for path in candidates:
+                    try:
+                        return _IF.truetype(path, size)
+                    except Exception:
+                        pass
+                try:
+                    return _IF.load_default(size=size)
+                except Exception:
+                    return None
+            font_title  = _load_font(20)
+            font_label  = _load_font(16)
+            font_tick   = _load_font(14)
+            font_footer = _load_font(12)
+
+            def txt(pos, text, font=None, fill="black", anchor="mm"):
+                draw.text(pos, text, fill=fill, font=font, anchor=anchor)
+
+            # Y grid lines + tick labels
+            for v in y_ticks:
+                if mn <= v <= mx:
+                    y = pad_t + ph - int((v - mn) / (mx - mn) * ph)
+                    draw.line([(pad_l, y), (pad_l + pw, y)], fill="#e0e0e0", width=1)
+                    txt((pad_l - 6, y), f"{v:g}", font=font_tick,
+                        fill="#333333", anchor="rm")
+
+            # X grid lines + tick labels
+            for xi in x_ticks:
+                x = pad_l + int(xi / max(n_pts - 1, 1) * pw)
+                draw.line([(x, pad_t), (x, pad_t + ph)], fill="#e0e0e0", width=1)
+                txt((x, pad_t + ph + 14), str(xi), font=font_tick,
+                    fill="#333333", anchor="mm")
+
             # Axes box
-            draw.rectangle([pad_l, pad_t, pad_l + pw, pad_t + ph], outline="black")
-            # Labels
-            draw.text((W // 2, pad_t // 2), "Global energy plot", fill="black", anchor="mm")
-            draw.text((W // 2, H - 8), "MC cycle number", fill="black", anchor="mm")
-            draw.text((10, pad_t + ph // 2), "Global energy", fill="black", anchor="mm")
+            draw.rectangle([pad_l, pad_t, pad_l + pw, pad_t + ph],
+                           outline="#333333", width=1)
+
+            # Title — centred over the plot area, not the full canvas
+            txt((pad_l + pw // 2, pad_t // 2), "Global energy plot",
+                font=font_title, fill="black", anchor="mm")
+
+            # X-axis label
+            txt((pad_l + pw // 2, pad_t + ph + 42), "MC cycle number",
+                font=font_label, fill="#333333", anchor="mm")
+
+            # Y-axis label — transparent, empty lines above/below give natural spacing
+            label_h = 22
+            label_w = ph
+            label_img = Image.new("RGBA", (label_w, label_h * 3), (255, 255, 255, 0))
+            label_draw = ImageDraw.Draw(label_img)
+            label_draw.text((label_w // 2, label_h * 3 // 2), "Global energy",
+                            font=font_label, fill="#333333", anchor="mm")
+            label_img = label_img.rotate(90, expand=True)
+            plot_rgba = plot_img.convert("RGBA")
+            lx = 6
+            ly = pad_t + (ph - label_img.height) // 2
+            plot_rgba.paste(label_img, (lx, ly), mask=label_img)
+            plot_img = plot_rgba.convert("RGB")
+            draw = ImageDraw.Draw(plot_img)
+
+            # Footer note — centred over plot area, spaced below X label
+            txt((pad_l + pw // 2, H - 26),
+                "To make full use of interactions, make sure that the number of cycles",
+                font=font_footer, fill="#666666", anchor="mm")
+            txt((pad_l + pw // 2, H - 11),
+                "is sufficient to allow the global energy to reach a plateau (equilibration).",
+                font=font_footer, fill="#666666", anchor="mm")
+
             # Data line
             if len(mc_energies) >= 2:
                 pts = []
                 for i, e in enumerate(mc_energies):
                     x = pad_l + int(i / (len(mc_energies) - 1) * pw)
                     y = pad_t + ph - int((e - mn) / (mx - mn) * ph)
+                    y = max(pad_t, min(pad_t + ph, y))
                     pts.append((x, y))
                 for i in range(len(pts) - 1):
                     draw.line([pts[i], pts[i + 1]], fill="#2F24D8", width=2)
+
             idx_en    = next_available_index(out_dir, "MC_energy")
             plot_path = os.path.join(out_dir, f"MC_energy_{idx_en:02d}.png")
             plot_img.save(plot_path, dpi=(150, 150))
@@ -1480,3 +1572,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
