@@ -43,4 +43,4 @@ Double click on the ".exe" file. In case guidance is needed, users can follow th
 -------------------------------------------------
 
 Fourier Tiler has been developed by Stefano Canossa thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
-The use, distribution, and modification of the provided files for non-commercial purposes are allowed upon acknowledging the program's author and supporting parties. For more information, please read the "licence information" file. 
+Its development was also made possible by coding assistance by Microsoft copilot and Anthropic Claude. The use, distribution, and modification of the provided files for non-commercial purposes are allowed upon acknowledging the program's author and supporting parties. For more information, please read the "licence information" file. 
