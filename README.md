@@ -19,7 +19,7 @@ Additional functions include the inspection of the squared difference form facto
 # Use instructions
 
 Fourier Tiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
-The first option, available within the release, gives access to a graphical user interface facilitating the use of the program, although without the freedom of modifying the underlying code.
+The first option, available within a forthcoming release, gives access to a graphical user interface facilitating the use of the program, although without the freedom of modifying the underlying code.
 The second option, still user friendly and easy to use, is kept light by not having any user interface and allows anyone to modify and customize its code.
 
 
