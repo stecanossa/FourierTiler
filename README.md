@@ -1,4 +1,4 @@
-# **Welcome to Fourier Tiler!**
+# **Welcome to FourierTiler!**
 
 
 This program provides an image-based analogy of how diffraction and total scattering works, which considers:
