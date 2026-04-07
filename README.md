@@ -18,7 +18,7 @@ Additional functions include the inspection of the squared difference form facto
 
 # Use instructions
 
-Fourier Tiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
+FourierTiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
 The first option, available within a ***forthcoming*** release, gives access to a graphical user interface facilitating the use of the program, although without the freedom of modifying the underlying code.
 The second option, still user friendly and easy to use, is kept light by not having any user interface and allows anyone to modify and customize its code.
 
@@ -45,6 +45,6 @@ Further useful information can be found in the User Manual provided within the r
 
 #   Acknowledgements and Permissions
    
-Fourier Tiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
-Coding assistance by Microsoft Copilot and Anthropic Claude were essential for its development, while design of interface, functions, and behaviour have been independent from AI contribution.   
+FourierTiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
+Coding assistance by Microsoft Copilot and Anthropic Claude were essential to its development, while design of interface, functions, and behaviour have been independent from AI contribution.   
 The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Stefano Canossa), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
