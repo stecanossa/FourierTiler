@@ -47,4 +47,4 @@ Further useful information can be found in the User Manual provided within the r
    
 FourierTiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
 Coding assistance by Microsoft Copilot and Anthropic Claude were essential to its development, while design of interface, functions, and behaviour have been independent from AI contribution.   
-The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Stefano Canossa), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
+The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Dr. Stefano Canossa, currently Professor at Ewha Womans University), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
