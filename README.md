@@ -16,6 +16,8 @@ In the most basic workflow, the program executes these sequential processes:
 Additional functions include the inspection of the squared difference form factor of a pair of tiles, the average structure of the tiling, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as several customization options for the output images.                 
 <br><br>
 
+Do you find it fun, useful, insightful, all of them at once? Feel free to share your impressions by e-mailing me at s.canossa@ewha.ac.kr (and if you have special requests, don't be shy and inspire me to do better!)
+
 # Use instructions
 
 FourierTiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
