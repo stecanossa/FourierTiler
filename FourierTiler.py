@@ -740,6 +740,9 @@ DEFAULTS = {
     "save_mc_energy_plot":  True,
     "save_diff_ff":         True,
     "save_avg_structure":   False,
+    "log_scale":            False,
+    "ignore_squaring":      False,
+    "export_tiff":          False,
 }
 
 VALID_CROP_SHAPES = {"none", "circle", "faded", "ellipse", "square", "pentagonal"}
@@ -832,7 +835,8 @@ def parse_input_file(path: str) -> dict:
             elif key == "output_folder":
                 params["output_folder"] = rest
 
-            elif key in ("save_mc_energy_plot", "save_diff_ff", "save_avg_structure"):
+            elif key in ("save_mc_energy_plot", "save_diff_ff", "save_avg_structure",
+                         "log_scale", "ignore_squaring", "export_tiff"):
                 params[key] = _bool(key, rest, lineno, DEFAULTS[key])
 
             else:
@@ -950,8 +954,13 @@ def apply_mask_crop(image: Image.Image, crop_radius_factor: float, shape: str) -
     return np.where(mask, arr, 0)
 
 
-def apply_fft_processing(magnitude: np.ndarray, params: dict) -> np.ndarray:
-    """Apply smoothing, zoom, percentile clip, and intensity-range rescaling."""
+def apply_fft_processing(magnitude: np.ndarray, params: dict,
+                         force_square: bool = False) -> np.ndarray:
+    """Apply squaring, smoothing, zoom, percentile clip, log scale, and intensity rescaling."""
+    # Squaring: always applied if force_square=True (diff FF), otherwise respects ignore_squaring
+    if force_square or not params.get("ignore_squaring", False):
+        magnitude = magnitude ** 2
+
     sigma = float(params["gaussian_sigma"])
     if sigma > 0:
         magnitude = gaussian_filter_np(magnitude, sigma)
@@ -965,6 +974,10 @@ def apply_fft_processing(magnitude: np.ndarray, params: dict) -> np.ndarray:
     magnitude = np.clip(magnitude, 0, np.percentile(magnitude, 99))
     if magnitude.max() != 0:
         magnitude /= magnitude.max()
+
+    # Log scale — applied after normalisation, before intensity slider
+    if params.get("log_scale", False):
+        magnitude = np.log1p(magnitude * 9) / np.log(10)
 
     lo = float(params["intensity_low"])  / 100.0
     hi = float(params["intensity_high"]) / 100.0
@@ -1043,8 +1056,8 @@ def compute_diff_ff(paths: list, min_size: int, params: dict) -> np.ndarray:
 
     F1   = fft.fftshift(fft.fft2(imgs[0]))
     F2   = fft.fftshift(fft.fft2(imgs[1]))
-    diff = np.abs(F2 - F1) ** 2
-    return apply_fft_processing(diff, params)
+    diff = np.abs(F2 - F1)   # always squared — force_square=True in apply_fft_processing
+    return apply_fft_processing(diff, params, force_square=True)
 
 
 def compute_avg_structure(paths: list, occs: list, min_size: int) -> Image.Image:
@@ -1210,8 +1223,8 @@ def run(params: dict):
         np.array(Image.fromarray(cropped), dtype=np.uint8), target=5000
     )
 
-    fft_shifted      = fft.fftshift(fft.fft2(cropped_arr))
-    fft_magnitude_raw = np.abs(fft_shifted) ** 2
+    fft_shifted       = fft.fftshift(fft.fft2(cropped_arr))
+    fft_magnitude_raw = np.abs(fft_shifted)   # un-squared; squaring done in apply_fft_processing
 
     magnitude = apply_fft_processing(fft_magnitude_raw.copy(), params)
 
@@ -1244,6 +1257,13 @@ def run(params: dict):
     fft_path = os.path.join(out_dir, f"Intensity_{idx_int:02d}.png")
     fft_img.save(fft_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
     print(f"  Saved FFT           →  {fft_path}")
+
+    if params["export_tiff"]:
+        tiff_arr  = (magnitude * 65535).astype(np.uint16)
+        tiff_img  = Image.fromarray(tiff_arr).resize((export_size, export_size), Image.LANCZOS)
+        tiff_path = os.path.join(out_dir, f"Intensity_{idx_int:02d}.tiff")
+        tiff_img.save(tiff_path, compression="tiff_lzma")
+        print(f"  Saved FFT (16-bit)  →  {tiff_path}")
 
     # ── Difference form factor |f1 − f2|² ────────────────────────────────────
     if params["save_diff_ff"]:
@@ -1479,6 +1499,17 @@ save_diff_ff = True
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
 
+# Apply log scale to the FFT intensity (log10(1 + 9x), maps [0,1]→[0,1]).
+# Compresses bright peaks and boosts weak features.
+log_scale = False
+
+# Display and save |FT(Image)| instead of |FT(Image)|².
+# The difference form factor is always saved as |FT(tile1)−FT(tile2)|² regardless.
+ignore_squaring = False
+
+# Save an additional 16-bit greyscale TIFF of the FFT intensity alongside the PNG.
+export_tiff = False
+
 
 # ── Tiles ────────────────────────────────────────────────────
 # Format:  tile = <occupancy>, <path/to/image>
@@ -1565,6 +1596,9 @@ def main():
         f"  Save MC energy    : {params['save_mc_energy_plot']}\n"
         f"  Save |f1−f2|²     : {params['save_diff_ff']}\n"
         f"  Save avg structure: {params['save_avg_structure']}\n"
+        f"  Log scale         : {params['log_scale']}\n"
+        f"  Ignore squaring   : {params['ignore_squaring']}\n"
+        f"  Export TIFF       : {params['export_tiff']}\n"
     )
 
     run(params)
@@ -1572,4 +1606,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
