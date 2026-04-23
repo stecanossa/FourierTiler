@@ -1,12 +1,10 @@
-## ============================================================  ## 
-##  Fourier Tiler — Input file                                   ##  
-##  Usage: python FourierTiler.py Input.txt    					 ##			
-##               												 ##
-##  It works also without specifying the Input.txt file,         ##
-##  if it is present in the same folder.                         ##  
-##  Lines beginning with # are comments.                         ##  
-##  Key names are case-insensitive.                              ##  
-## ============================================================  ## 
+# ============================================================
+#  Fourier Tiler — Input file
+#  Usage: python FourierTiler.py Input.txt
+#
+#  Lines beginning with # are comments.
+#  Key names are case-insensitive.
+# ============================================================
 
 
 # ── Grid ─────────────────────────────────────────────────────
@@ -16,7 +14,7 @@ n = 42
 
 # Number of Monte Carlo swap cycles.
 # Use 0 for a purely random arrangement.
-mc_cycles = 5000
+mc_cycles = 1000
 
 # Shape used to crop the tiling before the FFT is computed.
 # Options: none | circle | faded | ellipse | square | pentagonal
@@ -47,6 +45,7 @@ gaussian_sigma = 1.0
 colormap = afmhot
 
 # Intensity-range clipping (percentages, 0 – 100).
+# Equivalent to the two slider handles in the GUI.
 intensity_low  = 0
 intensity_high = 100
 
@@ -66,6 +65,17 @@ save_diff_ff = True
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
 
+# Apply log scale to the FFT intensity (log10(1 + 9x), maps [0,1]→[0,1]).
+# Compresses bright peaks and boosts weak features.
+log_scale = False
+
+# Display and save |FT(Image)| instead of |FT(Image)|².
+# The difference form factor is always saved as |FT(tile1)−FT(tile2)|² regardless.
+ignore_squaring = False
+
+# Save an additional 16-bit greyscale TIFF of the FFT intensity alongside the PNG.
+export_tiff = False
+
 
 # ── Tiles ────────────────────────────────────────────────────
 # Format:  tile = <occupancy>, <path/to/image>
@@ -73,8 +83,9 @@ save_avg_structure = False
 # Any non-square image is centre-cropped to a square.
 # Images of different sizes are resized to the smallest one.
 # Add or remove lines freely.
-tile = 0.6, /mnt/c/Users/JBFourier/Desktop/tile1.png
-tile = 0.4, /mnt/c/Users/JBFourier/Desktop/tile2.jpg
+tile = 0.5, path/to/tile1.png
+tile = 0.5, path/to/tile2.png
+
 
 # ── Pair interactions ────────────────────────────────────────
 # Format:  interaction = <from_tile>, <to_tile>, <dx>, <dy>, <energy>
@@ -87,7 +98,7 @@ tile = 0.4, /mnt/c/Users/JBFourier/Desktop/tile2.jpg
 # Comment out or delete these lines if no interactions are needed.
 #
 # Example — tile 1 dislikes tile 2 along x and y, likes it on diagonals:
-# interaction = 1, 1,  1,  0,  10.0
+# interaction = 1, 2,  1,  0,  10.0
 # interaction = 1, 2,  0,  1,  10.0
 # interaction = 1, 2, -1,  0,  10.0
 # interaction = 1, 2,  0, -1,  10.0
