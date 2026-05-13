@@ -37,8 +37,18 @@ output_folder = ./output
 fft_zoom_factor = 0.3
 
 # Standard deviation of the Gaussian smoothing applied to the
-# intensity pattern. Use 0 for no smoothing.
+# intensity pattern. Use 0 for no smoothing. Affects |F|² and the
+# "PDF (from |F|²)" view; does NOT affect "PDF (from image)".
 gaussian_sigma = 1.0
+
+# FWHM (in degrees) of an azimuthal Gaussian smear applied to |F|²,
+# simulating single-crystal mosaicity. The same δω produces an arc
+# whose Cartesian length scales with radius (= |Q|), as in the
+# rocking-curve / mosaic-block model. Use 0 to disable.
+# Affects |F|² and the "PDF (from |F|²)" view; does NOT affect
+# "PDF (from image)" — that view bypasses |F|² entirely and serves
+# as an un-broadened reference for comparison.
+mosaicity = 0.0
 
 # Matplotlib colormap name for the intensity pattern.
 # Examples: afmhot, inferno, viridis, magma, hot, gray, jet ...
@@ -65,6 +75,21 @@ save_diff_ff = True
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
 
+# Save the pair distribution function (PDF) computed from |F|² as Re[FT(|F|²)].
+# This is the un-normalised Patterson function (single-crystal total-scattering
+# convention, no ρ−ρ₀ subtraction). Affected by gaussian_sigma and mosaicity,
+# which reshape |F|² before the back-transform.
+# Filename prefix: "PDF".
+save_pdf = False
+
+# Save the PDF computed directly from the real-space tiling via two FFTs
+# (autocorrelation by Wiener–Khinchin). Bypasses |F|² and therefore is
+# unaffected by gaussian_sigma and mosaicity — serves as an un-broadened
+# reference for comparison against save_pdf. At gaussian_sigma=0 and
+# mosaicity=0 the two PDFs coincide bit-exactly.
+# Filename prefix: "PDFimg".
+save_pdf_from_image = False
+
 # Apply log scale to the FFT intensity (log10(1 + 9x), maps [0,1]→[0,1]).
 # Compresses bright peaks and boosts weak features.
 log_scale = False
@@ -74,6 +99,8 @@ log_scale = False
 ignore_squaring = False
 
 # Save an additional 16-bit greyscale TIFF of the FFT intensity alongside the PNG.
+# When save_pdf or save_pdf_from_image are also enabled, matching 16-bit TIFFs
+# of the corresponding PDF views are saved as well.
 export_tiff = False
 
 
