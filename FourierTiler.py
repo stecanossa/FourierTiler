@@ -704,6 +704,82 @@ def gaussian_filter_np(arr, sigma):
 
 
 # ---------------------------------------------------------------------------
+# Mosaicity simulant — azimuthal Gaussian convolution in polar coordinates
+# ---------------------------------------------------------------------------
+
+def apply_mosaicity(magnitude, fwhm_deg):
+    """Pattern-side single-crystal mosaicity simulant.
+
+    Convolves |F|² with a Gaussian along the azimuthal (θ) axis in polar
+    coordinates: cart → polar (bilinear interpolation) → 1D Gaussian along
+    θ via FFT with periodic boundary → polar → cart (bilinear). The polar
+    grid uses the CIRCUMSCRIBED radius so the corners of the Cartesian
+    array are also covered; samples falling outside the cart grid are
+    zero-padded. No-op when fwhm_deg ≤ 0.
+
+    The Gaussian convolution is uniform in θ, so the same δω in degrees
+    produces an arc whose Cartesian length scales with r (= |Q| in the
+    diffraction-space analogue): a Bragg peak at radius r gets smeared
+    along an arc of length r·δω, exactly as in the single-crystal
+    rocking-curve / mosaic-block model.
+    """
+    if fwhm_deg <= 0:
+        return magnitude
+
+    sigma_deg = fwhm_deg / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+    h, w     = magnitude.shape
+    cy, cx   = h // 2, w // 2
+    max_r    = int(np.ceil(np.sqrt((h * 0.5) ** 2 + (w * 0.5) ** 2)))
+    n_r      = max_r
+    n_theta  = 1024
+
+    # ── Cart → polar (bilinear interpolation, zero pad OOB) ────────────────
+    r_axis     = np.linspace(0.0, float(max_r), n_r)
+    theta_axis = np.linspace(0.0, 2.0 * np.pi, n_theta, endpoint=False)
+    R, T = np.meshgrid(r_axis, theta_axis, indexing="ij")
+    Xs = cx + R * np.cos(T)
+    Ys = cy + R * np.sin(T)
+    oob = (Xs < 0) | (Xs > w - 1) | (Ys < 0) | (Ys > h - 1)
+    x0 = np.floor(Xs).astype(np.int32); x1 = x0 + 1
+    y0 = np.floor(Ys).astype(np.int32); y1 = y0 + 1
+    fx = Xs - x0;                       fy = Ys - y0
+    x0 = np.clip(x0, 0, w - 1); x1 = np.clip(x1, 0, w - 1)
+    y0 = np.clip(y0, 0, h - 1); y1 = np.clip(y1, 0, h - 1)
+    polar = (magnitude[y0, x0] * (1 - fx) * (1 - fy)
+           + magnitude[y0, x1] *      fx  * (1 - fy)
+           + magnitude[y1, x0] * (1 - fx) *      fy
+           + magnitude[y1, x1] *      fx  *      fy)
+    polar[oob] = 0.0
+
+    # ── 1D Gaussian along θ (periodic) via FFT ─────────────────────────────
+    sigma_theta_pix = sigma_deg * (n_theta / 360.0)
+    freqs   = np.fft.fftfreq(n_theta)
+    kernel  = np.exp(-2.0 * (np.pi ** 2) * (sigma_theta_pix ** 2) * (freqs ** 2))
+    pol_ft  = np.fft.fft(polar, axis=1)
+    pol_ft *= kernel[np.newaxis, :]
+    polar_s = np.real(np.fft.ifft(pol_ft, axis=1))
+
+    # ── Polar → cart (bilinear interpolation) ──────────────────────────────
+    yy = np.arange(h) - cy
+    xx = np.arange(w) - cx
+    XX, YY = np.meshgrid(xx, yy, indexing="xy")
+    R_cart = np.sqrt(XX * XX + YY * YY)
+    T_cart = np.arctan2(YY, XX) % (2.0 * np.pi)
+    r_idx = R_cart * (n_r - 1) / float(max_r)
+    t_idx = T_cart * n_theta   / (2.0 * np.pi)
+    r0 = np.floor(r_idx).astype(np.int32); r1 = np.minimum(r0 + 1, n_r - 1)
+    t0 = np.floor(t_idx).astype(np.int32) % n_theta
+    t1 = (t0 + 1) % n_theta
+    fr = r_idx - r0
+    ft = t_idx - np.floor(t_idx)
+    r0 = np.clip(r0, 0, n_r - 1)
+    return (polar_s[r0, t0] * (1 - fr) * (1 - ft)
+          + polar_s[r1, t0] *      fr  * (1 - ft)
+          + polar_s[r0, t1] * (1 - fr) *      ft
+          + polar_s[r1, t1] *      fr  *      ft)
+
+
+# ---------------------------------------------------------------------------
 # Point-in-polygon  (replaces matplotlib.path.Path.contains_points)
 # ---------------------------------------------------------------------------
 
@@ -733,6 +809,7 @@ DEFAULTS = {
     "output_folder":        ".",
     "fft_zoom_factor":      0.3,
     "gaussian_sigma":       1.0,
+    "mosaicity":            0.0,
     "colormap":             "afmhot",
     "intensity_low":        0.0,
     "intensity_high":       100.0,
@@ -740,6 +817,8 @@ DEFAULTS = {
     "save_mc_energy_plot":  True,
     "save_diff_ff":         True,
     "save_avg_structure":   False,
+    "save_pdf":             False,
+    "save_pdf_from_image":  False,
     "log_scale":            False,
     "ignore_squaring":      False,
     "export_tiff":          False,
@@ -814,7 +893,8 @@ def parse_input_file(path: str) -> dict:
                 params["export_size"] = _int(key, rest, lineno, DEFAULTS["export_size"])
 
             elif key in ("crop_radius_factor", "fft_zoom_factor",
-                         "gaussian_sigma", "intensity_low", "intensity_high"):
+                         "gaussian_sigma", "mosaicity",
+                         "intensity_low", "intensity_high"):
                 params[key] = _float(key, rest, lineno, DEFAULTS[key])
 
             elif key == "crop_shape":
@@ -836,6 +916,7 @@ def parse_input_file(path: str) -> dict:
                 params["output_folder"] = rest
 
             elif key in ("save_mc_energy_plot", "save_diff_ff", "save_avg_structure",
+                         "save_pdf", "save_pdf_from_image",
                          "log_scale", "ignore_squaring", "export_tiff"):
                 params[key] = _bool(key, rest, lineno, DEFAULTS[key])
 
@@ -954,10 +1035,13 @@ def apply_mask_crop(image: Image.Image, crop_radius_factor: float, shape: str) -
     return np.where(mask, arr, 0)
 
 
-def apply_fft_processing(magnitude: np.ndarray, params: dict,
-                         force_square: bool = False) -> np.ndarray:
-    """Apply squaring, smoothing, zoom, percentile clip, log scale, and intensity rescaling."""
-    # Squaring: always applied if force_square=True (diff FF), otherwise respects ignore_squaring
+def apply_fft_input_processing(magnitude: np.ndarray, params: dict,
+                               force_square: bool = False) -> np.ndarray:
+    """Physical pre-FFT operations: squaring (|F| → |F|²), σ Gaussian
+    smoothing, mosaicity (azimuthal smear). Must be applied BEFORE any
+    downstream Fourier transform (e.g. the FT of the intensity that
+    produces the PDF view), otherwise the display operations downstream
+    of this would distort the input to that transform."""
     if force_square or not params.get("ignore_squaring", False):
         magnitude = magnitude ** 2
 
@@ -965,17 +1049,46 @@ def apply_fft_processing(magnitude: np.ndarray, params: dict,
     if sigma > 0:
         magnitude = gaussian_filter_np(magnitude, sigma)
 
+    mosaicity_deg = float(params.get("mosaicity", 0.0))
+    magnitude = apply_mosaicity(magnitude, mosaicity_deg)
+    return magnitude
+
+
+def apply_display_processing(magnitude: np.ndarray, params: dict) -> np.ndarray:
+    """Display-side operations on a 2D array (zoom centre-crop → percentile-99
+    clip over positives → [min, max] normalisation over positives → optional
+    log10(1+9x) compression → intensity-range slider clip+renormalise).
+
+    Stats are computed over the POSITIVE subset of the array, so the colour
+    scheme spans the values actually present and physical in the displayed
+    region. Negatives (small float round-off in the PDF outputs — the
+    autocorrelation of a real non-negative image is mathematically
+    non-negative everywhere) are excluded from min/max and percentile, then
+    clipped to the colormap floor for display.
+
+    Must NEVER be applied upstream of an FFT — it would saturate the input
+    and scatter ringing artefacts through the transform."""
     zoom   = max(0.01, min(float(params["fft_zoom_factor"]), 1.0))
     h, w   = magnitude.shape
     zh, zw = int(h * zoom), int(w * zoom)
     sy, sx = (h - zh) // 2, (w - zw) // 2
     magnitude = magnitude[sy:sy + zh, sx:sx + zw]
 
-    magnitude = np.clip(magnitude, 0, np.percentile(magnitude, 99))
-    if magnitude.max() != 0:
-        magnitude /= magnitude.max()
+    positives = magnitude[magnitude > 0]
+    if positives.size == 0:
+        return np.zeros_like(magnitude, dtype=float)
 
-    # Log scale — applied after normalisation, before intensity slider
+    pct99 = np.percentile(positives, 99)
+    magnitude = np.clip(magnitude, None, pct99)
+    positives = magnitude[magnitude > 0]
+    amin = positives.min() if positives.size else 0.0
+    amax = magnitude.max()
+    if amax > amin:
+        magnitude = (magnitude - amin) / (amax - amin)
+        magnitude = np.clip(magnitude, 0.0, 1.0)
+    else:
+        return np.zeros_like(magnitude, dtype=float)
+
     if params.get("log_scale", False):
         magnitude = np.log1p(magnitude * 9) / np.log(10)
 
@@ -983,6 +1096,18 @@ def apply_fft_processing(magnitude: np.ndarray, params: dict,
     hi = float(params["intensity_high"]) / 100.0
     magnitude = np.clip(magnitude, lo, hi)
     magnitude = (magnitude - lo) / (hi - lo + 1e-8)
+    return magnitude
+
+
+def apply_fft_processing(magnitude: np.ndarray, params: dict,
+                         force_square: bool = False) -> np.ndarray:
+    """Wrapper for the pattern-side display chain: pre-FFT physical ops
+    (square, σ, mosaicity) → display-side ops (zoom, normalise, log,
+    slider). Used by the main FFT path and by the diff-FF path. The
+    PDF paths in run() call apply_fft_input_processing and
+    apply_display_processing separately, with the back-FFT in between."""
+    magnitude = apply_fft_input_processing(magnitude, params, force_square)
+    magnitude = apply_display_processing(magnitude, params)
     return magnitude
 
 
@@ -1265,6 +1390,65 @@ def run(params: dict):
         tiff_img.save(tiff_path, compression="tiff_lzma")
         print(f"  Saved FFT (16-bit)  →  {tiff_path}")
 
+    # ── PDF (from |F|²)  ─────────────────────────────────────────────────────
+    # Pair distribution function (autocorrelation, un-normalised Patterson
+    # function, single-crystal total-scattering convention with no ρ−ρ₀
+    # subtraction) computed as Re[FT(|F|²)]. σ and mosaicity reshape |F|²
+    # before the FT, so they affect this view.
+    if params["save_pdf"]:
+        print("Computing PDF (from |F|²)...")
+        intensity = apply_fft_input_processing(
+            fft_magnitude_raw.copy(), params, force_square=True,
+        )
+        pdf       = fft.fftshift(fft.fft2(fft.ifftshift(intensity))).real
+        pdf       = apply_display_processing(pdf, params)
+        pdf_rgb   = apply_lut(pdf, cmap_name)
+        pdf_img   = Image.fromarray(pdf_rgb, mode="RGB").resize(
+            (export_size, export_size), Image.LANCZOS
+        )
+        idx_pdf   = next_available_index(out_dir, "PDF")
+        pdf_path  = os.path.join(out_dir, f"PDF_{idx_pdf:02d}.png")
+        pdf_img.save(pdf_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
+        print(f"  Saved PDF           →  {pdf_path}")
+
+        if params["export_tiff"]:
+            tiff_arr  = (pdf * 65535).astype(np.uint16)
+            tiff_img  = Image.fromarray(tiff_arr).resize(
+                (export_size, export_size), Image.LANCZOS
+            )
+            tiff_path = os.path.join(out_dir, f"PDF_{idx_pdf:02d}.tiff")
+            tiff_img.save(tiff_path, compression="tiff_lzma")
+            print(f"  Saved PDF (16-bit)  →  {tiff_path}")
+
+    # ── PDF (from image)  ────────────────────────────────────────────────────
+    # The same autocorrelation, but computed directly on the real-space
+    # tiling via two FFTs — bypassing |F|² as a separate object and
+    # therefore not subject to σ or mosaicity. Serves as an un-broadened
+    # reference: at σ=0 and mosaicity=0 the two PDFs coincide bit-exactly.
+    if params["save_pdf_from_image"]:
+        print("Computing PDF (from image)...")
+        img_arr        = cropped_arr.astype(float)
+        intensity_corn = np.abs(fft.fft2(img_arr)) ** 2
+        pdf2           = fft.fftshift(fft.fft2(intensity_corn)).real
+        pdf2           = apply_display_processing(pdf2, params)
+        pdf2_rgb       = apply_lut(pdf2, cmap_name)
+        pdf2_img       = Image.fromarray(pdf2_rgb, mode="RGB").resize(
+            (export_size, export_size), Image.LANCZOS
+        )
+        idx_pdf2       = next_available_index(out_dir, "PDFimg")
+        pdf2_path      = os.path.join(out_dir, f"PDFimg_{idx_pdf2:02d}.png")
+        pdf2_img.save(pdf2_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
+        print(f"  Saved PDF (image)   →  {pdf2_path}")
+
+        if params["export_tiff"]:
+            tiff_arr  = (pdf2 * 65535).astype(np.uint16)
+            tiff_img  = Image.fromarray(tiff_arr).resize(
+                (export_size, export_size), Image.LANCZOS
+            )
+            tiff_path = os.path.join(out_dir, f"PDFimg_{idx_pdf2:02d}.tiff")
+            tiff_img.save(tiff_path, compression="tiff_lzma")
+            print(f"  Saved PDF (16-bit)  →  {tiff_path}")
+
     # ── Difference form factor |f1 − f2|² ────────────────────────────────────
     if params["save_diff_ff"]:
         if len(paths) < 2:
@@ -1471,8 +1655,18 @@ output_folder = ./output
 fft_zoom_factor = 0.3
 
 # Standard deviation of the Gaussian smoothing applied to the
-# intensity pattern. Use 0 for no smoothing.
+# intensity pattern. Use 0 for no smoothing. Affects |F|² and the
+# "PDF (from |F|²)" view; does NOT affect "PDF (from image)".
 gaussian_sigma = 1.0
+
+# FWHM (in degrees) of an azimuthal Gaussian smear applied to |F|²,
+# simulating single-crystal mosaicity. The same δω produces an arc
+# whose Cartesian length scales with radius (= |Q|), as in the
+# rocking-curve / mosaic-block model. Use 0 to disable.
+# Affects |F|² and the "PDF (from |F|²)" view; does NOT affect
+# "PDF (from image)" — that view bypasses |F|² entirely and serves
+# as an un-broadened reference for comparison.
+mosaicity = 0.0
 
 # Matplotlib colormap name for the intensity pattern.
 # Examples: afmhot, inferno, viridis, magma, hot, gray, jet ...
@@ -1499,6 +1693,21 @@ save_diff_ff = True
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
 
+# Save the pair distribution function (PDF) computed from |F|² as Re[FT(|F|²)].
+# This is the un-normalised Patterson function (single-crystal total-scattering
+# convention, no ρ−ρ₀ subtraction). Affected by gaussian_sigma and mosaicity,
+# which reshape |F|² before the back-transform.
+# Filename prefix: "PDF".
+save_pdf = False
+
+# Save the PDF computed directly from the real-space tiling via two FFTs
+# (autocorrelation by Wiener–Khinchin). Bypasses |F|² and therefore is
+# unaffected by gaussian_sigma and mosaicity — serves as an un-broadened
+# reference for comparison against save_pdf. At gaussian_sigma=0 and
+# mosaicity=0 the two PDFs coincide bit-exactly.
+# Filename prefix: "PDFimg".
+save_pdf_from_image = False
+
 # Apply log scale to the FFT intensity (log10(1 + 9x), maps [0,1]→[0,1]).
 # Compresses bright peaks and boosts weak features.
 log_scale = False
@@ -1508,6 +1717,8 @@ log_scale = False
 ignore_squaring = False
 
 # Save an additional 16-bit greyscale TIFF of the FFT intensity alongside the PNG.
+# When save_pdf or save_pdf_from_image are also enabled, matching 16-bit TIFFs
+# of the corresponding PDF views are saved as well.
 export_tiff = False
 
 
