@@ -13,9 +13,9 @@ In the most basic workflow, the program executes these sequential processes:
 2. Initiates a Monte Carlo simulation to produce a disordered tiling (or ordered, if only one tile is loaded).
 3. Produces a squared FT of the tiling image — |FT(image)|² — representing its "diffraction pattern".
 
-Additional functions include the inspection of the squared difference form factor of a pair of tiles, the average structure of the tiling, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as several customization options for the output images.                 
+Additional functions include generation of squared difference form factors, average tiling structure, pair distribution function, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as crystal mosaicity and several customization options for the output images.                 
 
-Do you find it fun, useful, insightful, or all of them at once? Feel free to share your impressions by e-mailing me at s.canossa@ewha.ac.kr! And if you have special requests, don't be shy and inspire me to do better :)
+Do you find it fun, useful, insightful, or all of them at once? Feel free to share your impressions by e-mail at s.canossa@ewha.ac.kr! And if you have special requests, don't be shy and inspire me to do better :)
 <br><br>
 
 # Use instructions
@@ -41,12 +41,12 @@ N.B. The following python modules are required for running the script: **sys, os
 <br><br>
 ## Tile images
 
-A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF.Users are highly encouraged to crate their custom tiles and let their creativity run free!   
+A "My Tilebox" folder with some example tile images is provided among the available files, as zipped file. Tiles can have any size, shape or content: the program automatically fixes size or shape mismatches automatically. Accepted formats are JPG, JPEG, PNG, BMP, and TIFF. Users are highly encouraged to crate their custom tiles and let their creativity run free!   
 Further useful information can be found in the User Manual provided within the release.
 <br><br>
 
 #   Acknowledgements and Permissions
    
 FourierTiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
-Coding assistance by Microsoft Copilot and Anthropic Claude were essential to its development, while design of interface, functions, and behaviour have been independent from AI contribution.   
-The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Dr. Stefano Canossa, currently Professor at Ewha Womans University), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
+Coding assistance by Microsoft Copilot and Anthropic Claude were essential to translate ideas and functions into reliably working code. Conceptualization and design of interface, functions, and options have been independent from AI contribution.   
+The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Dr. Stefano Canossa, currently Research Professor at Ewha Womans University), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
