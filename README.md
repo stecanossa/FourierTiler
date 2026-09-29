@@ -13,7 +13,7 @@ In the most basic workflow, the program executes these sequential processes:
 2. Initiates a Monte Carlo simulation to produce a disordered tiling (or ordered, if only one tile is loaded).
 3. Produces a squared FT of the tiling image — |FT(image)|² — representing its "diffraction pattern".
 
-Additional functions include generation of squared difference form factors, average tiling structure, pair distribution function, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as crystal mosaicity and several customization options for the output images.                 
+Additional functions include generation of squared difference form factors, average tiling structure, pair distribution function, and the definition of correlation parameters to control local ordering of tiles in non-periodic mosaics, as well as crystal mosaicity and many customization options for the output images.                 
 
 Do you find it fun, useful, insightful, or all of them at once? Feel free to share your impressions by e-mail at s.canossa@ewha.ac.kr! And if you have special requests, don't be shy and inspire me to do better :)
 <br><br>
@@ -22,12 +22,12 @@ Do you find it fun, useful, insightful, or all of them at once? Feel free to sha
 
 FourierTiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
 The first option, available within a the release, gives access to a graphical user interface facilitating the use of the program, although without the freedom of modifying the underlying code.
-The second option, still user friendly and easy to use, is kept light by not having any user interface and allows anyone to modify and customize its code.
+The second option, still relatively user friendly and easy to use, is kept light by not having any user interface and allows anyone to modify and customize its code.
 
 
 ### Running the Windows version
 
-Double click on the ".exe" file. In case guidance is needed, users can follow the instructions provided in the User Manual (herewith available for download).
+Double click on the ".exe" file. In case guidance is needed, users can follow the instructions provided in the Fourier Tiler User Manual provided within each release (latest version should be downloaded by in the latest release).
 
 
 ### Running the Python version
@@ -49,4 +49,4 @@ Further useful information can be found in the User Manual provided within the r
    
 FourierTiler has been developed thanks to the kind support by the EU4MOFs network (COST action CA22147) via an awarded Virtual Mobility (VM) grant.
 Coding assistance by Microsoft Copilot and Anthropic Claude were essential to translate ideas and functions into reliably working code. Conceptualization and design of interface, functions, and options have been independent from AI contribution.   
-The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program's author (Dr. Stefano Canossa, currently Research Professor at Ewha Womans University), any additional contributors, and supporting parties. For more information, please read the "licence information" file. 
+The use, distribution, and modification of the files here disclosed for non-commercial purposes are allowed upon acknowledging the program and its author (Dr. Stefano Canossa, currently Research Professor at Ewha Womans University). For more information, please read the "licence information" file. 
