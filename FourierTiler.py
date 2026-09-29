@@ -15,6 +15,8 @@ import math
 
 import numpy as np
 import numpy.fft as fft
+
+__version__ = "1.3.1"
 from PIL import Image, ImageDraw, ImageOps, PngImagePlugin
 
 
@@ -22,6 +24,13 @@ from PIL import Image, ImageDraw, ImageOps, PngImagePlugin
 # Colormap LUT data — exact matplotlib values, compressed
 # ---------------------------------------------------------------------------
 import zlib, base64
+
+
+for _stream in ("stdout", "stderr"):
+    try:
+        getattr(sys, _stream).reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 _ALL_CMAPS = [
     "inferno",
     "viridis",
@@ -688,7 +697,7 @@ def apply_lut(magnitude_01, cmap_name):
 
 
 # ---------------------------------------------------------------------------
-# Gaussian filter  (replaces scipy.ndimage.gaussian_filter)
+# Gaussian filter  
 # ---------------------------------------------------------------------------
 
 def gaussian_filter_np(arr, sigma):
@@ -780,7 +789,7 @@ def apply_mosaicity(magnitude, fwhm_deg):
 
 
 # ---------------------------------------------------------------------------
-# Point-in-polygon  (replaces matplotlib.path.Path.contains_points)
+# Point-in-polygon  
 # ---------------------------------------------------------------------------
 
 def _points_in_polygon(coords, polygon):
@@ -804,11 +813,12 @@ def _points_in_polygon(coords, polygon):
 DEFAULTS = {
     "n":                    42,
     "mc_cycles":            1,
+    "temperature":          0.0,
     "crop_shape":           "faded",
     "crop_radius_factor":   1.0,
     "output_folder":        ".",
     "fft_zoom_factor":      0.3,
-    "gaussian_sigma":       1.0,
+    "gaussian_sigma":       0.0,
     "mosaicity":            0.0,
     "colormap":             "afmhot",
     "intensity_low":        0.0,
@@ -816,6 +826,7 @@ DEFAULTS = {
     "export_size":          3000,
     "save_mc_energy_plot":  True,
     "save_diff_ff":         True,
+    "auto_downsample":      True,
     "save_avg_structure":   False,
     "save_pdf":             False,
     "save_pdf_from_image":  False,
@@ -841,6 +852,7 @@ def parse_input_file(path: str) -> dict:
     params = dict(DEFAULTS)
     params["tiles"]        = []   # list of (occupancy, path)
     params["interactions"] = []   # list of (i, j, dx, dy, energy)  — 0-based indices
+    params["diff_ff_pairs"] = []   # 1-based (n, m) tuples, or the string "all"
 
     with open(path, "r", encoding="utf-8") as fh:
         for lineno, raw in enumerate(fh, start=1):
@@ -883,17 +895,58 @@ def parse_input_file(path: str) -> dict:
                     continue
                 params["interactions"].append((i_from, j_to, dx, dy, energy))
 
+            elif key == "diff_ff":
+                # Repeatable, like `tile` and `interaction`, and using the same
+                # 1-based tile numbering. `diff_ff = all` asks for every
+                # unordered pair, matching the GUI's grid.
+                if rest.strip().lower() == "all":
+                    params["diff_ff_pairs"].append("all")
+                    continue
+                parts = [p.strip() for p in rest.split(",")]
+                if len(parts) != 2:
+                    _warn(f"Line {lineno}: 'diff_ff' needs 'n, m' or 'all' — skipped.")
+                    continue
+                try:
+                    a, b = int(parts[0]), int(parts[1])
+                except ValueError:
+                    _warn(f"Line {lineno}: tile numbers must be integers — skipped.")
+                    continue
+                if a == b:
+                    _warn(f"Line {lineno}: |f{a}−f{a}|² is identically zero — skipped.")
+                    continue
+                params["diff_ff_pairs"].append((min(a, b), max(a, b)))
+
             elif key == "n":
-                params["n"] = _int(key, rest, lineno, DEFAULTS["n"])
+                v = _int(key, rest, lineno, DEFAULTS["n"])
+                # clamped HERE rather than at run time, so the settings echo
+                # and the saved images agree with each other
+                if not (1 <= v <= 1000):
+                    _warn(f"Line {lineno}: n = {v} is outside 1-1000 and has "
+                          f"been set to {max(1, min(v, 1000))}. The tiling "
+                          f"size sets the reciprocal-space sampling, so this "
+                          f"changes every pattern the run produces.")
+                    v = max(1, min(v, 1000))
+                params["n"] = v
 
             elif key == "mc_cycles":
                 params["mc_cycles"] = _int(key, rest, lineno, DEFAULTS["mc_cycles"])
+
+            elif key == "crop_radius_factor":
+                v = _float(key, rest, lineno, DEFAULTS["crop_radius_factor"])
+                if not (0 < v <= 1):
+                    _warn(f"Line {lineno}: crop_radius_factor = {v} is outside "
+                          f"(0, 1]. Values above 1 push the crop outside the "
+                          f"tiling, which disables the edge taper that "
+                          f"'faded' exists to provide. Using "
+                          f"{DEFAULTS['crop_radius_factor']}.")
+                    v = DEFAULTS["crop_radius_factor"]
+                params["crop_radius_factor"] = v
 
             elif key == "export_size":
                 params["export_size"] = _int(key, rest, lineno, DEFAULTS["export_size"])
 
             elif key in ("crop_radius_factor", "fft_zoom_factor",
-                         "gaussian_sigma", "mosaicity",
+                         "gaussian_sigma", "mosaicity", "temperature",
                          "intensity_low", "intensity_high"):
                 params[key] = _float(key, rest, lineno, DEFAULTS[key])
 
@@ -906,6 +959,11 @@ def parse_input_file(path: str) -> dict:
                     params["crop_shape"] = val
 
             elif key == "colormap":
+                # "gray" is the obvious name for a greyscale pattern and the
+                # one the input file offers as an example, but the bundled
+                # tables call it gist_gray. Accept both spellings.
+                rest = {"gray": "gist_gray", "grey": "gist_gray",
+                        "greys": "gist_yarg"}.get(rest, rest)
                 if rest not in _ALL_CMAPS:
                     _warn(f"Line {lineno}: colormap '{rest}' not recognised. "
                           "Using default 'afmhot'.")
@@ -916,7 +974,7 @@ def parse_input_file(path: str) -> dict:
                 params["output_folder"] = rest
 
             elif key in ("save_mc_energy_plot", "save_diff_ff", "save_avg_structure",
-                         "save_pdf", "save_pdf_from_image",
+                         "save_pdf", "save_pdf_from_image", "auto_downsample",
                          "log_scale", "ignore_squaring", "export_tiff"):
                 params[key] = _bool(key, rest, lineno, DEFAULTS[key])
 
@@ -960,7 +1018,7 @@ def _bool(key, val, lineno, default):
 
 
 # ---------------------------------------------------------------------------
-# Image-processing helpers  (unchanged logic from the GUI version)
+# Image-processing helpers  
 # ---------------------------------------------------------------------------
 
 def crop_to_square_center(img: Image.Image) -> Image.Image:
@@ -1036,21 +1094,31 @@ def apply_mask_crop(image: Image.Image, crop_radius_factor: float, shape: str) -
 
 
 def apply_fft_input_processing(magnitude: np.ndarray, params: dict,
-                               force_square: bool = False) -> np.ndarray:
+                               force_square: bool = False,
+                               apply_sigma: bool = True,
+                               apply_mosaicity_smear: bool = True) -> np.ndarray:
     """Physical pre-FFT operations: squaring (|F| → |F|²), σ Gaussian
     smoothing, mosaicity (azimuthal smear). Must be applied BEFORE any
     downstream Fourier transform (e.g. the FT of the intensity that
     produces the PDF view), otherwise the display operations downstream
-    of this would distort the input to that transform."""
+    of this would distort the input to that transform.
+
+    `apply_sigma` and `apply_mosaicity_smear` exist so the difference form
+    factor can opt out of both. σ stands for a resolution broadening and
+    mosaicity for a mosaic-block smear; |f_n − f_m|² is the bare contrast
+    between two tile images and carries no Bragg structure for either to
+    act on, so the GUI excludes them there and this must match it."""
     if force_square or not params.get("ignore_squaring", False):
         magnitude = magnitude ** 2
 
-    sigma = float(params["gaussian_sigma"])
-    if sigma > 0:
-        magnitude = gaussian_filter_np(magnitude, sigma)
+    if apply_sigma:
+        sigma = float(params["gaussian_sigma"])
+        if sigma > 0:
+            magnitude = gaussian_filter_np(magnitude, sigma)
 
-    mosaicity_deg = float(params.get("mosaicity", 0.0))
-    magnitude = apply_mosaicity(magnitude, mosaicity_deg)
+    if apply_mosaicity_smear:
+        mosaicity_deg = float(params.get("mosaicity", 0.0))
+        magnitude = apply_mosaicity(magnitude, mosaicity_deg)
     return magnitude
 
 
@@ -1100,13 +1168,19 @@ def apply_display_processing(magnitude: np.ndarray, params: dict) -> np.ndarray:
 
 
 def apply_fft_processing(magnitude: np.ndarray, params: dict,
-                         force_square: bool = False) -> np.ndarray:
+                         force_square: bool = False,
+                         apply_sigma: bool = True,
+                         apply_mosaicity_smear: bool = True) -> np.ndarray:
     """Wrapper for the pattern-side display chain: pre-FFT physical ops
     (square, σ, mosaicity) → display-side ops (zoom, normalise, log,
-    slider). Used by the main FFT path and by the diff-FF path. The
-    PDF paths in run() call apply_fft_input_processing and
-    apply_display_processing separately, with the back-FFT in between."""
-    magnitude = apply_fft_input_processing(magnitude, params, force_square)
+    slider). Used by the main FFT path and by the diff-FF path, the
+    latter passing both flags False. The PDF paths in run() call
+    apply_fft_input_processing and apply_display_processing separately,
+    with the back-FFT in between."""
+    magnitude = apply_fft_input_processing(
+        magnitude, params, force_square,
+        apply_sigma=apply_sigma,
+        apply_mosaicity_smear=apply_mosaicity_smear)
     magnitude = apply_display_processing(magnitude, params)
     return magnitude
 
@@ -1116,12 +1190,22 @@ def apply_fft_processing(magnitude: np.ndarray, params: dict,
 # ---------------------------------------------------------------------------
 
 def next_available_index(folder: str, prefix: str) -> int:
+    """Lowest unused NN for files named "<prefix>_NN.<ext>" in `folder`.
+
+    The index is read from the text after the prefix, not from the second
+    underscore-separated field. Splitting on "_" breaks for any prefix that
+    contains one: "MC_energy_01.png" yields "energy", and the pair-numbered
+    "DiffFF_1-3_01.png" yields "1-3". Neither parses as an integer, so no
+    existing file was ever seen and every run reported index 1 and silently
+    overwrote the previous output.
+    """
     existing = []
+    head = prefix + "_"
     for fname in os.listdir(folder):
-        if fname.startswith(prefix + "_"):
+        if fname.startswith(head):
             try:
-                existing.append(int(fname.split("_")[1].split(".")[0]))
-            except Exception:
+                existing.append(int(fname[len(head):].split(".")[0]))
+            except ValueError:
                 pass
     if not existing:
         return 1
@@ -1131,14 +1215,38 @@ def next_available_index(folder: str, prefix: str) -> int:
     return len(existing) + 1
 
 
+def next_run_index(folder: str, prefixes) -> int:
+    """One index for every file a single run writes.
+
+    Asking each prefix separately let them drift apart: writing
+    Intensity_01.png made the very next query for the same prefix return 2,
+    so the 16-bit TIFF of the SAME pattern was saved as Intensity_02.tiff and
+    the following run's PNG became Intensity_03 while its tiling was still
+    Image_02. Pairing a tiling with its own pattern by number then gave the
+    wrong run. Taking the highest free index across all prefixes at once
+    keeps every file a run produces on the same number.
+    """
+    return max(next_available_index(folder, p) for p in prefixes)
+
+
 # ---------------------------------------------------------------------------
 # Energy calculation
 # ---------------------------------------------------------------------------
 
 def calculate_energy(g: np.ndarray, name_to_idx: dict, interactions: list) -> float:
-    energy   = 0.0
+    """Total energy of a grid of tile NAMES (kept for callers that have one)."""
     idx_grid = np.vectorize(lambda nm: name_to_idx[nm])(g)
-    rows, cols = g.shape
+    return calculate_energy_idx(idx_grid, interactions)
+
+
+def calculate_energy_idx(idx_grid: np.ndarray, interactions: list) -> float:
+    """Total energy of a grid of tile INDICES.
+
+    The MC loop works on indices throughout: the string grid cost a dict
+    lookup per cell, through np.vectorize, on every single evaluation.
+    """
+    energy = 0.0
+    rows, cols = idx_grid.shape
     for (i_from, j_to, dx, dy, e_val) in interactions:
         dx_np = -dy
         dy_np =  dx
@@ -1152,19 +1260,118 @@ def calculate_energy(g: np.ndarray, name_to_idx: dict, interactions: list) -> fl
     return energy
 
 
+def local_energy(idx_grid: np.ndarray, interactions: list,
+                 sites: tuple, rows: int, cols: int) -> float:
+    """Sum of only those interaction terms that touch a site in `sites`.
+
+    calculate_energy_idx sums e_val over every ordered pair (s, s+d) whose
+    types match (i_from, j_to). Swapping two sites changes only the pairs in
+    which one of them is either the source s or the neighbour s+d, so the
+    energy DIFFERENCE can be read off those terms alone -- O(interactions)
+    per move instead of two full rows x cols sweeps.
+
+    Terms are keyed by (interaction index, source cell) so a pair counted
+    once as "p's forward neighbour" and again as "q's backward neighbour" --
+    which happens whenever the two swapped sites are exactly one interaction
+    vector apart -- is not added twice.
+    """
+    total = 0.0
+    seen = set()
+    for k, (i_from, j_to, dx, dy, e_val) in enumerate(interactions):
+        dxn, dyn = -dy, dx
+        for (r, c) in sites:
+            for sr, sc in ((r, c), (r - dxn, c - dyn)):
+                nr, nc = sr + dxn, sc + dyn
+                if not (0 <= sr < rows and 0 <= sc < cols):
+                    continue
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    continue
+                if (k, sr, sc) in seen:
+                    continue
+                seen.add((k, sr, sc))
+                if idx_grid[sr, sc] == i_from and idx_grid[nr, nc] == j_to:
+                    total += e_val
+    return total
+
+
+def metropolis_accept(delta: float, temperature: float) -> bool:
+    """Accept a trial move whose energy change is `delta`.
+
+    delta <= 0 is always accepted -- including delta == 0. Accepting moves
+    that leave the energy unchanged lets the arrangement diffuse across a
+    degenerate manifold rather than freezing on the first configuration from
+    which no strictly downhill move exists; with many interaction schemes the
+    majority of proposed swaps are energy-neutral, so refusing them would
+    stall the simulation early.
+
+    Above zero this is standard Metropolis, exp(-delta/temperature).
+
+    `temperature` is in the SAME units as the interaction energies. There is
+    no Boltzmann constant and no kelvin here -- only the ratio
+    delta/temperature matters. That ratio is also what gives the interaction
+    energies a scale: at temperature 0 the acceptance test is a pure
+    comparison, so multiplying every energy by the same positive factor
+    changes nothing at all.
+
+    temperature <= 0 is a pure quench: uphill moves are never accepted.
+    """
+    if delta <= 0:
+        return True
+    if temperature <= 0:
+        return False
+    return random.random() < math.exp(-delta / temperature)
+
+
 # ---------------------------------------------------------------------------
 # Optional-output helpers
 # ---------------------------------------------------------------------------
 
-def compute_diff_ff(paths: list, min_size: int, params: dict) -> np.ndarray:
+def resolve_diff_pairs(params: dict, n_tiles: int) -> list:
+    """Work out which (n, m) tile pairs to compute, 1-based.
+
+    Sources, in order:
+      * every `diff_ff = n, m` line, in the order written;
+      * `diff_ff = all`, expanded to every unordered pair n < m;
+      * failing both, the legacy `save_diff_ff = True`, which means 1, 2.
+
+    |f_n − f_m|² is unchanged by swapping n and m, so pairs are stored with
+    the smaller number first and duplicates dropped — asking for 3, 1 and
+    1, 3 produces one image, not two.
     """
-    Compute |FT(tile1) − FT(tile2)|² using the first two valid tile paths,
+    requested, seen, out = list(params.get("diff_ff_pairs", [])), set(), []
+    if not requested and params.get("save_diff_ff"):
+        requested = [(1, 2)]
+    for item in requested:
+        pairs = ([(a, b) for a in range(1, n_tiles + 1)
+                  for b in range(a + 1, n_tiles + 1)]
+                 if item == "all" else [item])
+        for a, b in pairs:
+            a, b = min(a, b), max(a, b)   # normalise here too, not only in the
+                                          # parser: the dedup below is only
+                                          # correct if every pair is ordered
+            if not (1 <= a <= n_tiles and 1 <= b <= n_tiles):
+                _warn(f"diff_ff = {a}, {b}: only {n_tiles} tiles are loaded — skipped.")
+                continue
+            if (a, b) not in seen:
+                seen.add((a, b))
+                out.append((a, b))
+    return out
+
+
+def compute_diff_ff(paths: list, min_size: int, params: dict,
+                    n: int = 1, m: int = 2) -> np.ndarray:
+    """
+    Compute |FT(tile n) − FT(tile m)|² for 1-based tile numbers n and m,
     then apply the same FFT processing (smoothing, zoom, intensity range)
     as the main pattern.  Returns a processed magnitude array (0–1).
+
+    The numbers are positions in the `tile =` list, the same convention
+    `interaction =` uses. Occupancy plays no part: this is the intrinsic
+    contrast between two tile images, not a property of the tiling.
     """
     TARGET = 5000
     imgs = []
-    for p in paths[:2]:
+    for p in (paths[n - 1], paths[m - 1]):
         img = crop_to_square_center(Image.open(p).convert("L"))
         if img.size[0] != min_size:
             img = img.resize((min_size, min_size), Image.LANCZOS)
@@ -1182,7 +1389,9 @@ def compute_diff_ff(paths: list, min_size: int, params: dict) -> np.ndarray:
     F1   = fft.fftshift(fft.fft2(imgs[0]))
     F2   = fft.fftshift(fft.fft2(imgs[1]))
     diff = np.abs(F2 - F1)   # always squared — force_square=True in apply_fft_processing
-    return apply_fft_processing(diff, params, force_square=True)
+    return apply_fft_processing(diff, params, force_square=True,
+                                apply_sigma=False,
+                                apply_mosaicity_smear=False)
 
 
 def compute_avg_structure(paths: list, occs: list, min_size: int) -> Image.Image:
@@ -1209,6 +1418,14 @@ def run(params: dict):
     # ── Validate / clamp ────────────────────────────────────────────────────
     n      = max(1, min(params["n"], 1000))
     cycles = max(0, params["mc_cycles"])
+    # a negative T is meaningless: the acceptance rule treats anything
+    # <= 0 as a quench, so it is rewritten to 0 rather than reported as
+    # a setting that was never used
+    if float(params["temperature"]) < 0:
+        _warn(f"temperature = {params['temperature']} is negative — using 0 "
+              f"(a quench). To favour high-energy arrangements, reverse the "
+              f"signs of the interaction energies instead.")
+        params["temperature"] = 0.0
     tiles_raw  = params["tiles"]
     interactions_raw = params["interactions"]
 
@@ -1239,9 +1456,17 @@ def run(params: dict):
         for j in range(i + 1, len(loaded_arrays)):
             if np.array_equal(loaded_arrays[i][1], loaded_arrays[j][1]):
                 sys.exit(
-                    f"ERROR: Tiles appear identical:\n"
-                    f"  {loaded_arrays[i][0]}\n  {loaded_arrays[j][0]}\n"
-                    "Please remove one of them."
+                    f"ERROR: tiles {i + 1} and {j + 1} hold the same image:\n"
+                    f"  {loaded_arrays[i][0]}\n  {loaded_arrays[j][0]}\n\n"
+                    "A tile is a scattering object, so two tiles holding the "
+                    "same image are one\nand the same species and nothing in "
+                    "the result can tell them apart. The\ntiling would come "
+                    "out exactly as if a single tile carried the sum of the\n"
+                    "two occupancies, and the difference form factor between "
+                    "them would be\nexactly zero, so no diffuse scattering "
+                    "could arise from the pair.\n\n"
+                    "To use more of this tile, raise its occupancy instead. "
+                    "To add a second\nspecies, use a different image."
                 )
 
     # Find smallest square tile size; resize all to that
@@ -1256,6 +1481,16 @@ def run(params: dict):
         if img.size[0] != min_size:
             img = img.resize((min_size, min_size), Image.LANCZOS)
         name = os.path.splitext(os.path.basename(p))[0]
+        if name in tiles:
+            # Tiles are keyed by file basename, so two files with the same
+            # name in different folders used to collapse into one species:
+            # the tiling became 100 % of whichever was listed last, and its
+            # pattern was that of an ordered crystal, with nothing said.
+            unique = f"{name} ({len(tile_names) + 1})"
+            _warn(f"two tiles share the basename '{name}'. The later one is "
+                  f"treated as a separate tile named '{unique}'; rename the "
+                  f"files if they were meant to be distinct.")
+            name = unique
         tile_names.append(name)
         tiles[name] = img
         used_occs.append(occ)
@@ -1284,29 +1519,54 @@ def run(params: dict):
 
     # ── MC simulation ───────────────────────────────────────────────────────
     name_to_idx  = {name: idx for idx, name in enumerate(tile_names)}
+    temperature  = float(params["temperature"])
     mc_energies  = []
     out_dir      = params["output_folder"]
     os.makedirs(out_dir, exist_ok=True)
 
-    print(f"Running MC simulation ({cycles} cycles)...")
+    # the MC runs on indices, not names; grid is rebuilt from it afterwards
+    idx_grid = np.vectorize(lambda nm: name_to_idx[nm])(grid).astype(np.int32)
+
+    print(f"Running MC simulation ({cycles} steps, T = {temperature:g})...")
     if cycles >= 2:
+        current_energy = calculate_energy_idx(idx_grid, interactions)
+        n_acc = n_flat = n_uphill_acc = n_stuck = 0
         log_path = os.path.join(out_dir, "MC_global_energy_log.txt")
         with open(log_path, "w") as log_file:
-            log_file.write("cycle\told_energy\tnew_energy\tcurrent_energy\n")
+            log_file.write("step\told_energy\tnew_energy\tcurrent_energy\n")
 
             for cycle in range(cycles):
-                i1, j1 = random.randint(0, n - 1), random.randint(0, n - 1)
-                i2, j2 = random.randint(0, n - 1), random.randint(0, n - 1)
-
-                old_energy = calculate_energy(grid, name_to_idx, interactions)
-                grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]
-                new_energy = calculate_energy(grid, name_to_idx, interactions)
-
-                if new_energy < old_energy:
-                    current_energy = new_energy
+                # Pick two sites holding DIFFERENT tiles. Exchanging a tile
+                # with its own kind cannot change the energy, and at equal
+                # occupancies a large fraction of random pairs are alike, so
+                # resampling keeps a step meaning an attempted move.
+                for _ in range(64):
+                    i1, j1 = random.randint(0, n - 1), random.randint(0, n - 1)
+                    i2, j2 = random.randint(0, n - 1), random.randint(0, n - 1)
+                    if idx_grid[i1, j1] != idx_grid[i2, j2]:
+                        break
                 else:
-                    grid[i1, j1], grid[i2, j2] = grid[i2, j2], grid[i1, j1]
-                    current_energy = old_energy
+                    n_stuck += 1          # a single-species lattice: no move exists
+                    mc_energies.append(current_energy)
+                    continue
+
+                sites  = ((i1, j1), (i2, j2))
+                before = local_energy(idx_grid, interactions, sites, n, n)
+                idx_grid[i1, j1], idx_grid[i2, j2] = idx_grid[i2, j2], idx_grid[i1, j1]
+                after  = local_energy(idx_grid, interactions, sites, n, n)
+                delta  = after - before
+
+                old_energy = current_energy
+                new_energy = current_energy + delta
+                if metropolis_accept(delta, temperature):
+                    current_energy = new_energy
+                    n_acc += 1
+                    if delta == 0:
+                        n_flat += 1
+                    elif delta > 0:
+                        n_uphill_acc += 1
+                else:
+                    idx_grid[i1, j1], idx_grid[i2, j2] = idx_grid[i2, j2], idx_grid[i1, j1]
 
                 log_file.write(
                     f"{cycle + 1}\t\t{old_energy}\t\t{new_energy}\t\t{current_energy}\n"
@@ -1319,8 +1579,21 @@ def run(params: dict):
 
         if cycles >= 100:
             print("  100%")
+        print(f"  accepted {n_acc}/{cycles} moves "
+              f"({100.0 * n_acc / max(1, cycles):.1f} %) -- "
+              f"{n_flat} flat, {n_uphill_acc} uphill.")
+        if n_uphill_acc == 0 and temperature > 0:
+            _warn(f"temperature = {temperature:g} accepted no uphill move at all. "
+                  f"It is small compared with your interaction energies; the run "
+                  f"is effectively a quench.")
+        if n_stuck:
+            _warn(f"{n_stuck} steps found no pair of unlike tiles to swap.")
     else:
-        print("  MC simulation skipped (cycles < 2).")
+        print("  MC simulation skipped (steps < 2).")
+
+    # back to names for the tile-pasting step below
+    names_arr = np.array(tile_names, dtype=object)
+    grid = names_arr[idx_grid]
 
     # ── Compose tiling image ────────────────────────────────────────────────
     print("Composing tiling image...")
@@ -1333,8 +1606,22 @@ def run(params: dict):
             final_img.paste(tiles[grid[i, j]], (j * min_size, i * min_size))
 
     if total_pixels > MAX_PIXELS:
-        print(f"  Image has {total_pixels:,} pixels — resizing to 100 Mpx automatically.")
-        final_img = final_img.resize((10_000, 10_000), Image.LANCZOS)
+        if params["auto_downsample"]:
+            print(f"  Image has {total_pixels:,} pixels — resizing to 100 Mpx automatically.")
+            final_img = final_img.resize((10_000, 10_000), Image.LANCZOS)
+        else:
+            # auto_downsample = False: transform at native resolution. The cost
+            # is quadratic in the tiling side and lands all at once -- fft2
+            # returns complex128 (16 B/px), fftshift copies it (another
+            # 16 B/px) and np.abs adds a float64 (8 B/px), so peak demand is
+            # about 40 bytes per pixel of the tiling.
+            need_gb = total_pixels * 40 / 1024 ** 3
+            _warn(f"auto_downsample = False and the tiling is "
+                  f"{total_pixels:,} pixels ({n * min_size}×{n * min_size}). "
+                  f"The FFT alone needs roughly {need_gb:.1f} GB of RAM. "
+                  f"If this run dies without a message, that is why.")
+            print(f"  Transforming at native resolution "
+                  f"({n * min_size}×{n * min_size}) — no downsampling.")
 
     TARGET_PIXELS = 5000
     final_img_resized = final_img.resize((TARGET_PIXELS, TARGET_PIXELS), Image.LANCZOS)
@@ -1366,7 +1653,16 @@ def run(params: dict):
     meta.add_text("FourierTilerSignature", signature)
 
     # Tiling
-    idx_img   = next_available_index(out_dir, "Image")
+    # Every file this run writes carries the SAME number, so a tiling and
+    # its own pattern can always be paired by index. The DiffFF prefixes are
+    # included because they are part of the run too.
+    run_prefixes = ["Image", "Intensity", "PDF", "PDFimg",
+                    "AvgStructure", "MC_energy"]
+    run_prefixes += [f"DiffFF_{a}-{b}"
+                     for (a, b) in resolve_diff_pairs(params, len(paths))]
+    run_idx = next_run_index(out_dir, run_prefixes)
+
+    idx_img   = run_idx
     img_path  = os.path.join(out_dir, f"Image_{idx_img:02d}.png")
     tiling_export = final_img_resized.resize((export_size, export_size), Image.LANCZOS)
     tiling_export.save(img_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
@@ -1378,7 +1674,7 @@ def run(params: dict):
     fft_img   = Image.fromarray(rgb, mode="RGB").resize(
         (export_size, export_size), Image.LANCZOS
     )
-    idx_int  = next_available_index(out_dir, "Intensity")
+    idx_int = run_idx
     fft_path = os.path.join(out_dir, f"Intensity_{idx_int:02d}.png")
     fft_img.save(fft_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
     print(f"  Saved FFT           →  {fft_path}")
@@ -1406,7 +1702,7 @@ def run(params: dict):
         pdf_img   = Image.fromarray(pdf_rgb, mode="RGB").resize(
             (export_size, export_size), Image.LANCZOS
         )
-        idx_pdf   = next_available_index(out_dir, "PDF")
+        idx_pdf = run_idx
         pdf_path  = os.path.join(out_dir, f"PDF_{idx_pdf:02d}.png")
         pdf_img.save(pdf_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
         print(f"  Saved PDF           →  {pdf_path}")
@@ -1435,7 +1731,7 @@ def run(params: dict):
         pdf2_img       = Image.fromarray(pdf2_rgb, mode="RGB").resize(
             (export_size, export_size), Image.LANCZOS
         )
-        idx_pdf2       = next_available_index(out_dir, "PDFimg")
+        idx_pdf2 = run_idx
         pdf2_path      = os.path.join(out_dir, f"PDFimg_{idx_pdf2:02d}.png")
         pdf2_img.save(pdf2_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
         print(f"  Saved PDF (image)   →  {pdf2_path}")
@@ -1449,28 +1745,32 @@ def run(params: dict):
             tiff_img.save(tiff_path, compression="tiff_lzma")
             print(f"  Saved PDF (16-bit)  →  {tiff_path}")
 
-    # ── Difference form factor |f1 − f2|² ────────────────────────────────────
-    if params["save_diff_ff"]:
-        if len(paths) < 2:
-            _warn("save_diff_ff = True but fewer than 2 tiles are loaded — skipped.")
-        else:
-            print("Computing difference form factor...")
-            diff_mag  = compute_diff_ff(paths, min_size, params)
+    # ── Difference form factors |f_n − f_m|² ────────────────────────────────────
+    diff_pairs = resolve_diff_pairs(params, len(paths))
+    if diff_pairs and len(paths) < 2:
+        _warn("a difference form factor was requested but fewer than 2 tiles "
+              "are loaded — skipped.")
+    else:
+        for (dn, dm) in diff_pairs:
+            print(f"Computing difference form factor |f{dn}−f{dm}|²...")
+            diff_mag  = compute_diff_ff(paths, min_size, params, dn, dm)
             diff_rgb  = apply_lut(diff_mag, cmap_name)
             diff_img  = Image.fromarray(diff_rgb, mode="RGB").resize(
                 (export_size, export_size), Image.LANCZOS
             )
-            idx_diff  = next_available_index(out_dir, "DiffFF")
-            diff_path = os.path.join(out_dir, f"DiffFF_{idx_diff:02d}.png")
+            # the pair goes in the filename: one run can now write several
+            prefix    = f"DiffFF_{dn}-{dm}"
+            idx_diff = run_idx
+            diff_path = os.path.join(out_dir, f"{prefix}_{idx_diff:02d}.png")
             diff_img.save(diff_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
-            print(f"  Saved |f1−f2|²      →  {diff_path}")
+            print(f"  Saved |f{dn}−f{dm}|²      →  {diff_path}")
 
     # ── Average structure ─────────────────────────────────────────────────────
     if params["save_avg_structure"]:
         print("Computing average structure...")
         avg_img  = compute_avg_structure(paths, used_occs, min_size)
         avg_img  = avg_img.resize((export_size, export_size), Image.LANCZOS)
-        idx_avg  = next_available_index(out_dir, "AvgStructure")
+        idx_avg = run_idx
         avg_path = os.path.join(out_dir, f"AvgStructure_{idx_avg:02d}.png")
         avg_img.save(avg_path, dpi=(TARGET_DPI, TARGET_DPI), pnginfo=meta)
         print(f"  Saved avg structure →  {avg_path}")
@@ -1480,7 +1780,7 @@ def run(params: dict):
     if params["save_mc_energy_plot"]:
         if not (has_nonzero and len(mc_energies) >= 2):
             _warn("save_mc_energy_plot = True but no nonzero interactions or fewer than "
-                  "2 MC cycles ran — energy plot skipped.")
+                  "2 MC steps ran — energy plot skipped.")
         else:
             # ── Layout ──────────────────────────────────────────────────────
             W, H     = 820, 540
@@ -1566,7 +1866,7 @@ def run(params: dict):
                 font=font_title, fill="black", anchor="mm")
 
             # X-axis label
-            txt((pad_l + pw // 2, pad_t + ph + 42), "MC cycle number",
+            txt((pad_l + pw // 2, pad_t + ph + 42), "MC step number",
                 font=font_label, fill="#333333", anchor="mm")
 
             # Y-axis label — transparent, empty lines above/below give natural spacing
@@ -1586,7 +1886,7 @@ def run(params: dict):
 
             # Footer note — centred over plot area, spaced below X label
             txt((pad_l + pw // 2, H - 26),
-                "To make full use of interactions, make sure that the number of cycles",
+                "To make full use of interactions, make sure that the number of steps",
                 font=font_footer, fill="#666666", anchor="mm")
             txt((pad_l + pw // 2, H - 11),
                 "is sufficient to allow the global energy to reach a plateau (equilibration).",
@@ -1603,7 +1903,7 @@ def run(params: dict):
                 for i in range(len(pts) - 1):
                     draw.line([pts[i], pts[i + 1]], fill="#2F24D8", width=2)
 
-            idx_en    = next_available_index(out_dir, "MC_energy")
+            idx_en = run_idx
             plot_path = os.path.join(out_dir, f"MC_energy_{idx_en:02d}.png")
             plot_img.save(plot_path, dpi=(150, 150))
             print(f"  Saved MC energy     →  {plot_path}")
@@ -1630,9 +1930,27 @@ TEMPLATE = """\
 # A value of 42 produces a 42×42 mosaic (1764 tiles total).
 n = 42
 
-# Number of Monte Carlo swap cycles.
+# Number of Monte Carlo steps. At each step two tiling positions holding
+# different tiles are picked and swapped, and the swap is accepted or
+# rejected according to the energy change and the temperature below.
 # Use 0 for a purely random arrangement.
+# (The key is named mc_cycles for compatibility with older input files.)
 mc_cycles = 1000
+
+# Monte Carlo temperature, in the SAME units as the interaction energies at
+# the end of this file. There is no Boltzmann constant and no kelvin here:
+# only the ratio between an energy change and T has any meaning.
+#   0        a quench. Only swaps that lower the energy, or leave it
+#            unchanged, are taken. The tiling settles into the nearest local
+#            minimum and stays there - strongly correlated, but not an
+#            equilibrium state.
+#   above 0  a swap raising the energy by dE is accepted with probability
+#            exp(-dE/T). Larger T gives weaker correlations, approaching a
+#            random tiling. Raise mc_cycles when raising T, since more steps
+#            are then needed to equilibrate.
+# Negative values are not meaningful and are treated as 0; to favour
+# high-energy arrangements, reverse the signs of the interaction energies.
+temperature = 0
 
 # Shape used to crop the tiling before the FFT is computed.
 # Options: none | circle | faded | ellipse | square | pentagonal
@@ -1642,6 +1960,16 @@ crop_shape = faded
 
 # Fraction of the half-width used as the crop radius (0 < value ≤ 1).
 crop_radius_factor = 1.0
+
+# Automatic downsampling of the tiling before the Fourier transform.
+# When the tiling exceeds 100 megapixels it is resized to that limit, which
+# is what keeps the transform inside memory. Set to False to transform at the
+# tiling's native resolution instead: reciprocal space is then sampled more
+# finely, at a cost that grows as the square of the tiling side. Roughly 40
+# bytes are needed per pixel of the tiling, so a 21000x21000 tiling wants
+# about 16 GB for the transform alone; the program prints the estimate before
+# attempting it.
+auto_downsample = True
 
 
 # ── Output ───────────────────────────────────────────────────
@@ -1657,7 +1985,7 @@ fft_zoom_factor = 0.3
 # Standard deviation of the Gaussian smoothing applied to the
 # intensity pattern. Use 0 for no smoothing. Affects |F|² and the
 # "PDF (from |F|²)" view; does NOT affect "PDF (from image)".
-gaussian_sigma = 1.0
+gaussian_sigma = 0
 
 # FWHM (in degrees) of an azimuthal Gaussian smear applied to |F|²,
 # simulating single-crystal mosaicity. The same δω produces an arc
@@ -1683,12 +2011,29 @@ export_size = 3000
 
 # ── Optional outputs ──────────────────────────────────────────
 # Save the MC global-energy plot (PNG).
-# Requires nonzero interaction energies and at least 2 MC cycles.
+# Requires nonzero interaction energies and at least 2 MC steps.
 save_mc_energy_plot = True
 
-# Save the squared difference form factor |FT(tile1) − FT(tile2)|²  (PNG).
-# Uses the first two tiles listed below. Requires at least 2 tiles.
+# Save the squared difference form factor |f_n − f_m|² (PNG), which is the
+# quantity governing the diffuse scattering produced by substitutional
+# disorder. Tiles are numbered by their order in the "tile =" list below,
+# the same convention "interaction =" uses. Occupancies play no part: this
+# is the intrinsic contrast between two tile images.
+#
+# Kept for compatibility with older input files. If no diff_ff line appears
+# below, this saves the pair 1, 2.
 save_diff_ff = True
+
+# Request a specific pair, or every pair. This line may be repeated as many
+# times as wanted, e.g.
+#     diff_ff = 1, 3
+#     diff_ff = 2, 4
+# The quantity is a squared difference, so exchanging the two tiles leaves it
+# unchanged: "3, 1" and "1, 3" produce one image, not two. Use
+#     diff_ff = all
+# for every possible pair. Each output carries its pair in the filename,
+# e.g. DiffFF_1-3_01.png.
+# diff_ff = all
 
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
@@ -1755,9 +2100,20 @@ tile = 0.5, path/to/tile2.png
 
 
 def write_template(dest: str = "Input.txt"):
+    # Never overwrite: this file is where a user keeps their tile paths,
+    # occupancies and interaction energies, and --template is easy to try out
+    # of curiosity. Refusing costs one retry; overwriting costs their setup.
+    if os.path.exists(dest):
+        print(f"'{dest}' already exists and has NOT been changed.",
+              file=sys.stderr)
+        print(f"  To write a fresh template alongside it:\n"
+              f"      python FourierTiler.py --template Input_new.txt",
+              file=sys.stderr)
+        return False
     with open(dest, "w", encoding="utf-8") as fh:
         fh.write(TEMPLATE)
     print(f"Template input file written to: {os.path.abspath(dest)}")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1797,7 +2153,8 @@ def main():
     # Echo key settings
     print(
         f"\n  Grid              : {params['n']}×{params['n']}\n"
-        f"  MC cycles         : {params['mc_cycles']}\n"
+        f"  MC steps          : {params['mc_cycles']}\n"
+        f"  Temperature       : {params['temperature']}  (energy units, not K)\n"
         f"  Crop shape        : {params['crop_shape']}\n"
         f"  Colormap          : {params['colormap']}\n"
         f"  Export size       : {params['export_size']}×{params['export_size']} px\n"
@@ -1805,7 +2162,8 @@ def main():
         f"  Tiles             : {len(params['tiles'])}\n"
         f"  Interactions      : {len(params['interactions'])}\n"
         f"  Save MC energy    : {params['save_mc_energy_plot']}\n"
-        f"  Save |f1−f2|²     : {params['save_diff_ff']}\n"
+        f"  Diff form factors : {params['diff_ff_pairs'] or ('1, 2 (legacy save_diff_ff)' if params['save_diff_ff'] else 'none')}\n"
+        f"  Auto downsample   : {params['auto_downsample']}\n"
         f"  Save avg structure: {params['save_avg_structure']}\n"
         f"  Log scale         : {params['log_scale']}\n"
         f"  Ignore squaring   : {params['ignore_squaring']}\n"
