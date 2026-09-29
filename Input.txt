@@ -1,5 +1,5 @@
 # ============================================================
-#  Fourier Tiler — Input file
+#  Fourier Tiler — Input file update for version 1.3.1
 #  Usage: python FourierTiler.py Input.txt
 #
 #  Lines beginning with # are comments.
@@ -9,21 +9,34 @@
 
 # ── Grid ─────────────────────────────────────────────────────
 # Side length of the square tiling in number of tiles.
-# A value of 42 produces a 42×42 mosaic (1764 tiles total).
 n = 42
 
-# Number of Monte Carlo swap cycles.
+# Number of Monte Carlo steps. At each step two tiling positions holding
+# different tiles are picked and swapped, and the swap is accepted or
+# rejected according to the energy change and the temperature below.
 # Use 0 for a purely random arrangement.
 mc_cycles = 1000
 
+# Monte Carlo temperature, in the SAME units as the interaction energies at
+# the end of this file. There is no Boltzmann constant and no kelvin here:
+# only the ratio between an energy change and T has any meaning.
+# Negative values are not meaningful and are treated as 0.
+temperature = 0
+
 # Shape used to crop the tiling before the FFT is computed.
 # Options: none | circle | faded | ellipse | square | pentagonal
-# "faded" (default) applies a Gaussian-tapered circular window
-# that reduces edge artefacts in the diffraction pattern.
+# "faded" (default) applies a Gaussian-tapered circular window.
 crop_shape = faded
 
 # Fraction of the half-width used as the crop radius (0 < value ≤ 1).
 crop_radius_factor = 1.0
+
+# Automatic downsampling of the tiling before the Fourier transform.
+# When the tiling exceeds 100 megapixels it is resized to that limit, which
+# is what keeps the transform inside memory. Set to False to transform at the
+# tiling's native resolution instead: reciprocal space is then sampled more
+# finely, at a cost that grows as the square of the tiling side. 
+auto_downsample = True
 
 
 # ── Output ───────────────────────────────────────────────────
@@ -39,15 +52,12 @@ fft_zoom_factor = 0.3
 # Standard deviation of the Gaussian smoothing applied to the
 # intensity pattern. Use 0 for no smoothing. Affects |F|² and the
 # "PDF (from |F|²)" view; does NOT affect "PDF (from image)".
-gaussian_sigma = 1.0
+gaussian_sigma = 0
 
 # FWHM (in degrees) of an azimuthal Gaussian smear applied to |F|²,
 # simulating single-crystal mosaicity. The same δω produces an arc
 # whose Cartesian length scales with radius (= |Q|), as in the
 # rocking-curve / mosaic-block model. Use 0 to disable.
-# Affects |F|² and the "PDF (from |F|²)" view; does NOT affect
-# "PDF (from image)" — that view bypasses |F|² entirely and serves
-# as an un-broadened reference for comparison.
 mosaicity = 0.0
 
 # Matplotlib colormap name for the intensity pattern.
@@ -65,28 +75,35 @@ export_size = 3000
 
 # ── Optional outputs ──────────────────────────────────────────
 # Save the MC global-energy plot (PNG).
-# Requires nonzero interaction energies and at least 2 MC cycles.
+# Requires nonzero interaction energies and at least 2 MC steps.
 save_mc_energy_plot = True
 
-# Save the squared difference form factor |FT(tile1) − FT(tile2)|²  (PNG).
-# Uses the first two tiles listed below. Requires at least 2 tiles.
+# Save the squared difference form factor |f_n − f_m|² (PNG). 
+# Tiles are numbered by their order in the "tile =" list below,
+# the same convention "interaction =" uses. Occupancies play no part: this
+# is the intrinsic contrast between two tile images.
+#
+# If no diff_ff line appears below, this saves the pair 1, 2.
 save_diff_ff = True
+
+# Request a specific pair, or every pair. This line may be repeated as many
+# times as wanted, e.g.
+#     diff_ff = 1, 3
+#     diff_ff = 2, 4
+# Each output carries its pair in the filename, e.g. DiffFF_1-3_01.png.
+# diff_ff = all
 
 # Save the occupancy-weighted average structure (PNG).
 save_avg_structure = False
 
 # Save the pair distribution function (PDF) computed from |F|² as Re[FT(|F|²)].
 # This is the un-normalised Patterson function (single-crystal total-scattering
-# convention, no ρ−ρ₀ subtraction). Affected by gaussian_sigma and mosaicity,
-# which reshape |F|² before the back-transform.
-# Filename prefix: "PDF".
+# convention, no ρ−ρ₀ subtraction). Affected by gaussian_sigma and mosaicity.
 save_pdf = False
 
 # Save the PDF computed directly from the real-space tiling via two FFTs
 # (autocorrelation by Wiener–Khinchin). Bypasses |F|² and therefore is
-# unaffected by gaussian_sigma and mosaicity — serves as an un-broadened
-# reference for comparison against save_pdf. At gaussian_sigma=0 and
-# mosaicity=0 the two PDFs coincide bit-exactly.
+# unaffected by gaussian_sigma and mosaicity.
 # Filename prefix: "PDFimg".
 save_pdf_from_image = False
 
