@@ -20,7 +20,7 @@ Do you find it fun, useful, insightful, or all of them at once? Feel free to sha
 
 # Use instructions
 
-FourierTiler is provided either as (1) Windows executable or (2) python script, which do not require any installation.    
+FourierTiler is provided either as (1) Windows/macOS (v1.3 and above) executable or (2) python script, neither requiring any installation.    
 The first option, available within a the release, gives access to a graphical user interface facilitating the use of the program, although without the freedom of modifying the underlying code.
 The second option, still relatively user friendly and easy to use, is kept light by not having any user interface and allows anyone to modify and customize its code.
 
